@@ -1,0 +1,9 @@
+{
+  "version": "0.4.5",
+  "publishedAt": "2026-11-25T05:24:57.396Z",
+  "notes": "- 更多页面在“关于阅读树”下方新增“检查更新”，发现新版本只在此入口显示红点，不弹窗、不自动下载或安装。\n- 支持手动检查、每天一次的后台静默检查、查看发布说明、确认打开下载地址、忽略此版本和恢复提示；断网或更新源暂不可用不影响阅读。\n- 更新来源默认配置为 Gitee 的 sanbyzhu/yuedushu 仓库，支持在页面修改公开 update.json 的 HTTPS 地址。\n- Windows 与安卓均在用户确认后打开系统浏览器下载对应安装包，再由系统完成覆盖安装。\n- 打包时同步生成 update.json、校验值与最新源码包，便于在 Gitee 发布安装包、GitHub 镜像源码。\n- 修复打开目录总从第一章显示的问题：自动定位到当前阅读章节，重新打开目录或从笔记切回目录同样生效。",
+  "downloads": {
+    "windows": "https://gitee.com/sanbyzhu/yuedushu/releases/download/v0.4.5/%E9%98%85%E8%AF%BB%E6%A0%91_0.4.5_Windows_x64_%E5%AE%89%E8%A3%85%E7%89%88.exe",
+    "android": "https://gitee.com/sanbyzhu/yuedushu/releases/download/v0.4.5/%E9%98%85%E8%AF%BB%E6%A0%91_0.4.5_Android_release.apk"
+  }
+}
