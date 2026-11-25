@@ -103,12 +103,12 @@ if (mode === 'all' || mode === 'android') {
 if (mode === 'collect') { windowsArtifact(); androidArtifact(); }
 // Publish assets before copying this manifest to the repository's master branch.
 if (['all', 'collect'].includes(mode)) {
-  const source = JSON.parse(fs.readFileSync('src/update-source.json', 'utf8'));
-  const repository = source.repositoryUrl.replace(/\/$/, '');
+  const publishing = JSON.parse(fs.readFileSync('scripts/publish-config.json', 'utf8'));
   const downloads = {};
   for (const [target, name] of [['windows', `阅读树_${version}_Windows_x64_安装版.exe`], ['android', `阅读树_${version}_Android_release.apk`]]) {
     if (!fs.existsSync(path.join(output, name))) throw new Error('Missing update asset: ' + name);
-    downloads[target] = `${repository}/releases/download/v${version}/${encodeURIComponent(name)}`;
+    downloads[target] = publishing.downloads[target].replaceAll('{version}', version);
+    if (new URL(downloads[target]).protocol !== 'https:') throw new Error('Release downloads must use HTTPS');
   }
   fs.writeFileSync(path.join(output, 'update.json'), JSON.stringify({ version, publishedAt: new Date().toISOString(),
     notes: releaseSection ? releaseSection.slice(releaseSection.indexOf('\n') + 1).trim() : '', downloads }, null, 2) + '\n');

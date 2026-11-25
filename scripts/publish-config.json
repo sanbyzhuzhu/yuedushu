@@ -1,0 +1,8 @@
+{
+  "giteeRepository": "https://gitee.com/sanbyzhu/yuedushu",
+  "githubRepository": "https://github.com/sanbyzhuzhu/yuedushu",
+  "downloads": {
+    "windows": "https://gitee.com/sanbyzhu/yuedushu/raw/downloads/v{version}/ReadingTree_{version}_Windows_x64_Setup.exe",
+    "android": "https://github.com/sanbyzhuzhu/yuedushu/releases/download/v{version}/ReadingTree_{version}_Android.apk"
+  }
+}
