@@ -1,0 +1,12 @@
+.notes-manager-tools { display: grid; gap: 12px; padding: 0 18px 18px; }
+.notes-manager-tools > input, .notes-manager-tools select { min-width: 0; width: 100%; padding: 10px; color: inherit; background: transparent; border: 1px solid var(--hair); border-radius: 6px; }
+.notes-manager-tools label { display: flex; align-items: center; gap: 8px; }
+.notes-manager-list { padding: 0 20px; }
+.notes-manager-entry { padding: 20px 0; border-bottom: 1px solid var(--hair); }
+.notes-manager-entry header { display: flex; gap: 12px; align-items: start; justify-content: space-between; font-size: 13px; }
+.notes-manager-entry header span { overflow-wrap: anywhere; }
+.notes-manager-entry button { flex-shrink: 0; }
+.notes-manager-entry blockquote { margin: 18px 0; padding: 0 0 0 14px; border-left: 2px solid var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--serif, serif); font-size: 17px; line-height: 1.85; }
+.notes-manager-comment { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.notes-manager-entry small { opacity: .65; }
+.notes-manager-pages { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 20px; }

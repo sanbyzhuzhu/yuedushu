@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.tmp/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.log
+.DS_Store
+.gradle-home/
+vite.config.ts.timestamp-*.mjs
+.playwright-cli/
+output/playwright/
+releases/
+.android-signing.local.json
+*.keystore
+*.jks

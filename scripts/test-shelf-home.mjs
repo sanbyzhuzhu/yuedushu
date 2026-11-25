@@ -1,0 +1,90 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+import { shelfAction, shelfView, shelfVersion } from './shelf-actions.mjs';
+const server = await createServer({ server: { host: '127.0.0.1', port: 5197, strictPort: true } });
+await server.listen();
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
+let checks = 0;
+const ok = (value, label) => { assert.ok(value, label); checks++; console.log('✓ ' + label); };
+const back = () => page.evaluate(() => window.readingTreeBack());
+try {
+  fs.mkdirSync('output/playwright', { recursive: true });
+  await page.goto('http://127.0.0.1:5197');
+  await page.waitForFunction(() => window.__rtLib?.getState().ready);
+  ok(await page.locator('.shelf-toolbar, .m-bar, .shelf-summary').count() === 0, 'empty shelf hides filtering, paging and batch management');
+  ok(await page.getByRole('button', { name: '导入第一本书' }).isVisible() && await page.getByRole('button', { name: '网络找书' }).isVisible(), 'empty shelf offers import and network discovery');
+  await page.screenshot({ path: 'output/playwright/home-empty.png' });
+  await page.getByRole('button', { name: '网络找书' }).click();
+  await page.getByRole('dialog', { name: '网络书库' }).waitFor(); await back();
+  const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+  await shelfVersion(page, version);
+  ok(await page.getByLabel('版本 ' + version).count() === 0, 'version is available in About without occupying home space');
+  await page.evaluate(async () => {
+    const { platform } = await import('/src/platform/web.ts');
+    const titles = ['闲情偶寄', '人间词话', '浮生六记', '小窗幽记', '山水清音', '夜航船'];
+    const authors = ['李渔', '王国维', '沈复', '陈继儒', '佚名', '张岱'];
+    for (let i = 0; i < 125; i++) await platform.putBook({ id: 'home-' + i, title: i < 6 ? titles[i] : '藏书第' + i + '卷', author: authors[i % 6], format: 'txt', size: 1024, nodeId: i === 124 ? 'cat29' : null, addedAt: 1000 - i }, [{ title: '正文', html: '<p>读书之乐，在一窗晴日，也在半盏清茶。</p>', chars: 20 }]);
+    await platform.kvSet('nodes', Array.from({ length: 30 }, (_, i) => ({ id: 'cat' + i, name: ['古典文学', '诗词歌赋', '历史随笔'][i % 3] + (i || ''), parentId: null })));
+    await platform.kvSet('progress:home-0', { chapter: 0, page: 0, pages: 10, pct: .37, updatedAt: 1001 });
+  });
+  await page.reload(); await page.locator('.continue-reading').waitFor();
+  const coverTop = (await page.locator('.cover').first().boundingBox()).y;
+  ok(coverTop < 400, 'first book cover appears above 400px with resume, categories and pagination present');
+  await page.screenshot({ path: 'output/playwright/home-mobile.png' });
+  ok(await page.locator('.cell').count() === 60, 'redesigned shelf retains the 60-book rendering limit');
+  ok(await page.locator('.book-page-compact input').isVisible() === false, 'top page jump input stays collapsed by default');
+  await page.locator('.book-page-compact summary').click();
+  await page.getByLabel('搜索书名或作者').fill('闲情偶寄');
+  await page.waitForFunction(() => document.querySelectorAll('.cell').length === 1);
+  await page.getByLabel('搜索书名或作者').fill('');
+  await page.waitForFunction(() => document.querySelectorAll('.cell').length === 60);
+  await back();
+  ok(await back() === 'exit', 'filtering away an expanded page picker does not leave an invisible back handler');
+  await page.locator('.book-page-compact summary').click();
+  await page.locator('.book-page-compact input').focus();
+  await back();
+  ok(!(await page.locator('.book-page-compact input').isVisible()), 'native back closes the page picker before exiting the shelf');
+  await page.locator('.book-page-compact summary').click();
+  await page.locator('.book-page-compact input').fill('3'); await page.locator('.book-page-compact button').click();
+  await page.getByRole('button', { name: '阅读《藏书第124卷》', exact: true }).waitFor();
+  ok(await page.locator('.cell').count() === 5 && !(await page.locator('.book-page-compact input').isVisible()), 'compact page jump reaches last page then closes');
+  await page.locator('.book-pages').getByRole('button', { name: '上一页', exact: true }).click();
+  ok(await page.locator('.cell').count() === 60 && await page.locator('.shelf-main').evaluate((el) => el.scrollTop) === 0, 'bottom pagination changes page and returns to the top');
+  await page.getByRole('button', { name: '全部分类', exact: false }).click();
+  await page.getByLabel('查找分类').fill('历史随笔29');
+  await page.locator('.category-browser').getByRole('button', { name: /历史随笔29/ }).click();
+  await page.getByRole('button', { name: '阅读《藏书第124卷》', exact: true }).waitFor();
+  ok(await page.locator('.cell').count() === 1, 'searchable category browser selects categories beyond the horizontal strip');
+  ok(await page.locator('.m-chips').evaluate((el) => { const r = el.querySelector('[aria-pressed=true]').getBoundingClientRect(), p = el.getBoundingClientRect(); return r.left >= p.left - 1 && r.right <= p.right + 1; }), 'selected category is scrolled into view');
+  await page.getByRole('button', { name: '全部分类', exact: false }).click();
+  await page.locator('.category-browser').getByRole('button', { name: /^全部藏书/ }).click();
+  await page.getByRole('button', { name: '管理', exact: true }).click();
+  await page.getByRole('dialog', { name: '书架管理' }).waitFor(); await back();
+  ok(await page.locator('.drawer').count() === 0 && await page.locator('.shelf').isVisible(), 'native back closes home management without exiting');
+  await shelfAction(page, '批量整理', '管理');
+  ok(await page.getByLabel('查找待整理书籍').isVisible(), 'batch management remains accessible through Manage'); await back();
+  for (const [action, label] of [['阅读统计', '阅读统计'], ['备份 / 恢复', '备份与恢复'], ['坚果云同步', '同步']]) {
+    await shelfAction(page, action);
+    ok(await page.locator('.drawer').count() === 1, action + ' opens one panel from More'); await back();
+  }
+  await shelfView(page, '列表'); ok(await page.locator('.row').count() === 60, 'arrangement panel switches to list');
+  await shelfView(page, '网格');
+  for (const width of [320, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    ok(await page.locator('.shelf-main').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'home fits ' + width + 'px without horizontal overflow');
+    if (width === 320 || width === 1280) await page.screenshot({ path: 'output/playwright/home-' + width + '.png' });
+  }
+  await page.getByRole('button', { name: '更多', exact: true }).click();
+  await page.keyboard.press('Tab');
+  ok(await page.locator('.drawer').evaluate((el) => el.contains(document.activeElement)), 'keyboard focus enters the More panel');
+  await page.keyboard.press('Escape');
+  ok(await page.getByRole('button', { name: '更多', exact: true }).evaluate((el) => el === document.activeElement), 'Escape closes More and restores focus');
+  ok(errors.length === 0, 'home flows have no runtime errors: ' + errors.join('; '));
+  fs.writeFileSync('output/playwright/home-results.json', JSON.stringify({ checks, coverTop }, null, 2));
+  console.log(checks + ' home checks passed. First cover top: ' + coverTop);
+} catch (e) { await page.screenshot({ path: 'output/playwright/home-failure.png' }); throw e; }
+finally { await browser.close(); await server.close(); }

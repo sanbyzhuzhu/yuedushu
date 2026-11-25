@@ -1,0 +1,31 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- 阅读树：宣纸、五色果实与展开的书。主体独立供 Android 自适应图标复用。 -->
+  <rect width="1024" height="1024" rx="224" fill="#F3EDDD"/>
+  <rect x="40" y="40" width="944" height="944" rx="191" fill="none" stroke="#DDD2B6" stroke-width="5"/>
+  <g id="emblem">
+    <g fill="none" stroke="#65513B" stroke-linecap="round">
+      <path d="M512 702V365" stroke-width="34"/>
+      <path d="M512 562Q445 475 352 426M512 538Q592 455 691 412" stroke-width="25"/>
+      <path d="M435 493L295 485M596 484L733 478" stroke-width="19"/>
+    </g>
+    <circle cx="371" cy="340" r="108" fill="#355F70"/>
+    <circle cx="657" cy="336" r="111" fill="#69754B"/>
+    <circle cx="514" cy="258" r="96" fill="#AD4F3E"/>
+    <circle cx="291" cy="473" r="74" fill="#BE914B"/>
+    <circle cx="738" cy="466" r="76" fill="#956046"/>
+    <g fill="#F5EFDC">
+      <circle cx="349" cy="317" r="13"/>
+      <circle cx="630" cy="311" r="13"/>
+      <circle cx="501" cy="234" r="13"/>
+      <circle cx="277" cy="457" r="10"/>
+      <circle cx="724" cy="450" r="10"/>
+    </g>
+    <path d="M216 689Q352 631 512 689Q672 631 808 689V785Q663 753 512 807Q361 753 216 785Z" fill="#80513D"/>
+    <path d="M238 682Q362 638 501 697V778Q369 727 238 762Z" fill="#FFFCF2"/>
+    <path d="M786 682Q662 638 523 697V778Q655 727 786 762Z" fill="#E8DCC0"/>
+    <g fill="none" stroke="#BAA584" stroke-width="7" stroke-linecap="round">
+      <path d="M275 702Q369 680 463 714M275 730Q369 708 463 742"/>
+      <path d="M749 702Q655 680 561 714M749 730Q655 708 561 742"/>
+    </g>
+  </g>
+</svg>

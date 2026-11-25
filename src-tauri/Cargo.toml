@@ -1,0 +1,31 @@
+[package]
+name = "reading-tree"
+version = "0.4.5"
+description = "阅读树 · 极简古典风电子书阅读器"
+authors = ["reading-tree"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+# tauri-build 的 build-dep 图里 schemars 0.8 依赖 indexmap 1.x；
+# 该图无任何依赖启用 indexmap 的 std 特性时，IndexMap 缺默认泛型参数导致
+# schemars 编译报 E0107（resolver v2 下 build 依赖特性独立解析，须在此显式开启）
+indexmap = { version = "1.9.3", features = ["std"] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.6", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-http = "=2.6.1" # 与 npm @tauri-apps/plugin-http 2.6.1 对齐（npm 端无 2.7）
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri = { version = "2.11.6", features = ["tray-icon"] }
