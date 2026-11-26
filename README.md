@@ -2,12 +2,14 @@
 
 极简 · 古典 · 静读。本地优先的中文电子书阅读器，支持 Android 与 Windows。
 
-## 当前版本：0.4.5 · 安静更新与目录定位
+## 当前版本：0.4.6 · 署名更新与发布整理
 
-- [Windows x64 安装包（Gitee）](https://gitee.com/sanbyzhu/yuedushu/raw/downloads/v0.4.5/ReadingTree_0.4.5_Windows_x64_Setup.exe)
-- [安卓通用 APK（GitHub）](https://github.com/sanbyzhuzhu/yuedushu/releases/download/v0.4.5/ReadingTree_0.4.5_Android.apk)
-- [全部安装包、源码与校验值（GitHub 发行版）](https://github.com/sanbyzhuzhu/yuedushu/releases/tag/v0.4.5)
-- [Gitee 安装包分支](https://gitee.com/sanbyzhu/yuedushu/tree/downloads/v0.4.5)（大文件下载可能要求登录 Gitee）
+- [Windows x64 安装包（Gitee）](https://gitee.com/sanbyzhu/yuedushu/raw/downloads/v0.4.6/ReadingTree_0.4.6_Windows_x64_Setup.exe)
+- [安卓通用 APK（GitHub）](https://github.com/sanbyzhuzhu/yuedushu/releases/download/v0.4.6/ReadingTree_0.4.6_Android.apk)
+- [全部安装包、源码与校验值（最新发行版）](https://github.com/sanbyzhuzhu/yuedushu/releases/latest)
+- [Gitee 安装包分支](https://gitee.com/sanbyzhu/yuedushu/tree/downloads/v0.4.6)（大文件下载可能要求登录 Gitee）
+
+开发者：朱振坚（公号小二菜园）。0.4.6 主要统一开发者署名和发布资料，阅读功能保持延续。
 
 更多 → 关于阅读树下方的「检查更新」支持后台安静检查、红点提示、手动确认下载和忽略此版本，不弹窗或自动安装。更新说明默认从 Gitee 读取；Windows 安装包由 Gitee 提供，安卓 APK 使用 GitHub 的公开发行版下载，避免 Gitee 大文件匿名下载限制。目录打开时自动定位当前阅读章节；已有划线支持单击、右键或轻点后直接复制和撤销。
 

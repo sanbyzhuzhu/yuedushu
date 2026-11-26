@@ -28,7 +28,7 @@ assert.ok(!/前选|后选/.test(frontend.toString()), 'Old character extension c
 for (const text of ['readingTreeBack', '批量归类', '确认删除书签']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing management/back functionality: ' + text);
 assert.ok(frontend.includes(Buffer.from('文字重排')), 'Missing PDF text reflow');
 for (const text of ['清简书架版', '全部分类', '关于阅读树', 'book-pages', '停止后续导入', '准备下一批']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing large-library feature: ' + text);
-for (const text of ['朱振坚', '页面留白', '--reader-font-size', '--reader-image-height']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing reading-comfort feature: ' + text);
+for (const text of ['开发者：朱振坚（公号小二菜园）', '页面留白', '--reader-font-size', '--reader-image-height']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing reading-comfort feature: ' + text);
 for (const text of ['标记已读完','标记未读完']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing completion action: ' + text);
 for (const text of ['笔记管理', 'ReadingTreeNativeFiles', 'throwIfAborted', '个人阅读与藏书软件', 'WebDAV']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing notes/export/about upgrade: ' + text);
 const notesName = fs.readdirSync('dist/assets').find((name) => /^NotesManagerPanel-.*\.js$/.test(name));

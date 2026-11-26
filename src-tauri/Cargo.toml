@@ -1,6 +1,6 @@
 [package]
 name = "reading-tree"
-version = "0.4.5"
+version = "0.4.6"
 description = "阅读树 · 极简古典风电子书阅读器"
 authors = ["reading-tree"]
 license = ""

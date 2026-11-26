@@ -280,21 +280,21 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
           <span>分类树</span>
         </div>
         <div className="side-categories">
-        <button
-          className={`side-item ${selNode === 'all' ? 'active' : ''}`}
-          onClick={() => setSelNode('all')}
-        >
-          全部藏书<span className="count">{books.length}</span>
-        </button>
-        <button className={`side-item ${selNode === '__unfiled' ? 'active' : ''}`} onClick={() => setSelNode('__unfiled')}>未分类<span className="count">{nodeCounts.get(null) ?? 0}</span></button>
-        {nodes.map((n) => (
-          <div key={n.id} className={`side-row ${selNode === n.id ? 'active' : ''}`}>
-            <button className="side-item" style={{ paddingLeft: 14 + nodeDepth(n) * 14 }} onClick={() => setSelNode(n.id)}>
-              {n.name}
-              <span className="count">{nodeCounts.get(n.id) ?? 0}</span>
-            </button>
-          </div>
-        ))}
+          <button
+            className={`side-item ${selNode === 'all' ? 'active' : ''}`}
+            onClick={() => setSelNode('all')}
+          >
+            全部藏书<span className="count">{books.length}</span>
+          </button>
+          <button className={`side-item ${selNode === '__unfiled' ? 'active' : ''}`} onClick={() => setSelNode('__unfiled')}>未分类<span className="count">{nodeCounts.get(null) ?? 0}</span></button>
+          {nodes.map((n) => (
+            <div key={n.id} className={`side-row ${selNode === n.id ? 'active' : ''}`}>
+              <button className="side-item" style={{ paddingLeft: 14 + nodeDepth(n) * 14 }} onClick={() => setSelNode(n.id)}>
+                {n.name}
+                <span className="count">{nodeCounts.get(n.id) ?? 0}</span>
+              </button>
+            </div>
+          ))}
         </div>
         <button className="side-add" onClick={onAddNode}>
           分类管理
@@ -365,13 +365,13 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
               return (
                 <div key={b.id} className="cell">
                   <button className="book-open" onClick={() => onOpen(b.id)} aria-label={`阅读《${b.title}》`}>
-                  <BookCover book={b} background={bg} color={fg} />
-                  <div className="cell-meta">
-                    <span className="cell-title">{b.title}</span>
-                    <span className="cell-sub">
-                      {(b.completed ?? (progMap[b.id]?.pct ?? 0) >= .99) ? '已读完' : progMap[b.id] ? `已读 ${Math.round(progMap[b.id].pct * 100)}%` : b.author || b.format.toUpperCase()}
-                    </span>
-                  </div>
+                    <BookCover book={b} background={bg} color={fg} />
+                    <div className="cell-meta">
+                      <span className="cell-title">{b.title}</span>
+                      <span className="cell-sub">
+                        {(b.completed ?? (progMap[b.id]?.pct ?? 0) >= .99) ? '已读完' : progMap[b.id] ? `已读 ${Math.round(progMap[b.id].pct * 100)}%` : b.author || b.format.toUpperCase()}
+                      </span>
+                    </div>
                   </button>
                   <button
                     aria-label={`管理《${b.title}》`}
@@ -392,11 +392,11 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
             {bookPage.items.map((b) => (
               <div key={b.id} className="row">
                 <button className="row-open" onClick={() => onOpen(b.id)} aria-label={`阅读《${b.title}》`}>
-                <span className="row-title">{b.title}</span>
-                <span className="row-author">{b.author || '佚名'}</span>
-                <span className="row-sub">
-                  {(b.completed ?? (progMap[b.id]?.pct ?? 0) >= .99) ? '已读完 · ' : ''}{b.format.toUpperCase()} · {fmtSize(b.size)}
-                </span>
+                  <span className="row-title">{b.title}</span>
+                  <span className="row-author">{b.author || '佚名'}</span>
+                  <span className="row-sub">
+                    {(b.completed ?? (progMap[b.id]?.pct ?? 0) >= .99) ? '已读完 · ' : ''}{b.format.toUpperCase()} · {fmtSize(b.size)}
+                  </span>
                 </button>
                 <div className="row-actions" onClick={(e) => e.stopPropagation()}>
                   <button className="row-more" aria-label={`管理《${b.title}》`} onClick={() => setMenuId(menuId === b.id ? null : b.id)}>···</button>
@@ -437,7 +437,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
               {categoryQuery.trim() && !nodes.some((n) => n.name.toLowerCase().includes(categoryQuery.trim().toLowerCase())) ? <p className="panel-empty">没有找到这个分类</p> : null}
             </div><button className="category-manage-link" onClick={() => panelAction(onAddNode)}>分类管理 →</button>
           </> : null}
-          {shelfPanel === 'about' ? <div className="shelf-about"><TreeLogo /><h2>阅读树</h2><p>一卷在手，静读有时</p><p aria-label={'版本 ' + appVersion}>v{appVersion} · 清简书架版</p><p>阅读树是一款清简、古典的个人阅读与藏书软件。将书留在本地，离线也能静心阅读；横排与竖排自由切换，繁简转换随心选择，让古籍与新书各得其宜。</p><p>每本书都可独立设置阅读版式，自定义字体、字号、行距与留白。划线、批注与书签留住所思所感，让阅读更贴近自己的习惯。</p><p>支持上万本书籍的书架管理，以分类与搜索整理个人藏书；接入网络书库，发现经典与公版好书。可通过坚果云、InfiniCLOUD、Nextcloud 等任意标准 WebDAV 服务同步书籍、笔记与阅读进度，支持多个云盘同时同步、互为备份，在电脑与安卓设备间接续阅读。</p><p>长按正文选择文字，拖动选区端点划线；到本页末行后继续拖动，才会翻到下一页。</p><p>开发者：如水书斋 · 朱振坚</p><p>支持 {SUPPORTED_FORMATS}。</p><p>支持未加密电子书。Word 请使用 DOCX（不支持旧 DOC）；ZIP 仅支持 FB2.ZIP。PDF 可原版阅读，文字版可重排；OFD 支持文字及 PNG/JPEG 图片重排，暂不含 OCR、签章与矢量图。</p><button onClick={() => setShelfPanel('more')}>返回更多</button></div> : null}
+          {shelfPanel === 'about' ? <div className="shelf-about"><TreeLogo /><h2>阅读树</h2><p>一卷在手，静读有时</p><p aria-label={'版本 ' + appVersion}>v{appVersion} · 清简书架版</p><p>阅读树是一款清简、古典的个人阅读与藏书软件。将书留在本地，离线也能静心阅读；横排与竖排自由切换，繁简转换随心选择，让古籍与新书各得其宜。</p><p>每本书都可独立设置阅读版式，自定义字体、字号、行距与留白。划线、批注与书签留住所思所感，让阅读更贴近自己的习惯。</p><p>支持上万本书籍的书架管理，以分类与搜索整理个人藏书；接入网络书库，发现经典与公版好书。可通过坚果云、InfiniCLOUD、Nextcloud 等任意标准 WebDAV 服务同步书籍、笔记与阅读进度，支持多个云盘同时同步、互为备份，在电脑与安卓设备间接续阅读。</p><p>长按正文选择文字，拖动选区端点划线；到本页末行后继续拖动，才会翻到下一页。</p><p>开发者：朱振坚（公号小二菜园）</p><p>支持 {SUPPORTED_FORMATS}。</p><p>支持未加密电子书。Word 请使用 DOCX（不支持旧 DOC）；ZIP 仅支持 FB2.ZIP。PDF 可原版阅读，文字版可重排；OFD 支持文字及 PNG/JPEG 图片重排，暂不含 OCR、签章与矢量图。</p><button onClick={() => setShelfPanel('more')}>返回更多</button></div> : null}
         </Panel> : null}
 
         {menuId && books.find((b) => b.id === menuId) ? <Panel label="书籍管理" onClose={() => setMenuId(null)}><div className="drawer-head"><h3>书籍管理</h3><button onClick={() => setMenuId(null)}>关闭</button></div><p className="panel-intro">{books.find((b) => b.id === menuId)!.title}</p>{renderBookActions(books.find((b) => b.id === menuId)!)}</Panel> : null}

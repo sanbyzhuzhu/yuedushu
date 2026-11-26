@@ -18,7 +18,7 @@ try {
   await shelfVersion(page, version);
   await page.getByRole('button', {name:'更多',exact:true}).click();
   await page.getByRole('button').filter({hasText:'关于阅读树'}).click();
-  await page.getByText('开发者：如水书斋 · 朱振坚', {exact:true}).waitFor();
+  await page.getByText('开发者：朱振坚（公号小二菜园）', {exact:true}).waitFor();
   await page.getByText(/FB2 \/ FB2.ZIP/).first().waitFor();
   await page.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click();
   await page.screenshot({ path: 'output/playwright/release-' + version + '-shelf.png' });
