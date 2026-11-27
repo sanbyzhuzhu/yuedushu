@@ -10,6 +10,7 @@ import { parseMobi } from '../engine/mobi';
 import { parseFb2 } from '../engine/fb2';
 import { parseCbz } from '../engine/cbz';
 import { parseUpdb } from '../engine/updb';
+import { reconcileLibrarySnapshot } from '../engine/librarySnapshot';
 import { useSettings } from './settings';
 import type { SyncTombstones } from '../sync/types';
 import type { BookFormat, BookMeta, CatNode, Chapter } from '../engine/types';
@@ -25,18 +26,32 @@ interface LibraryState {
   nodes: CatNode[];
   ready: boolean;
   error: string;
+  importRevision: number;
+  pendingImport: {revision:number;ids:string[]} | null;
+  acknowledgeImport: (revision:number) => void;
   init: () => Promise<void>;
   importFile: (file: File, publish?: boolean) => Promise<BookMeta>;
   importFiles: (files: File[], progress: (done: number, total: number) => void, signal?: AbortSignal) => Promise<{ imported: number; failed: string[] }>;
   moveBooks: (ids: string[], nodeId: string | null) => Promise<void>;
+  setBooksHidden: (ids: string[], hidden: boolean) => Promise<void>;
   importSample: () => Promise<void>;
   removeBook: (id: string) => Promise<void>;
   moveBook: (id: string, nodeId: string | null) => Promise<void>;
   /** 编辑书籍信息（V0.3.0）：书名/作者/封面/分类一次原子保存（避免并发写互相覆盖） */
-  saveBookInfo: (id: string, patch: { title?: string; author?: string; cover?: string | null; nodeId?: string | null; completed?: boolean }) => Promise<void>;
+  saveBookInfo: (id: string, patch: { title?: string; author?: string; cover?: string | null; nodeId?: string | null; completed?: boolean; hidden?: boolean }) => Promise<void>;
   addNode: (name: string, parentId?: string | null) => Promise<string>;
   renameNode: (id: string, name: string) => Promise<void>;
   removeNode: (id: string) => Promise<void>;
+}
+
+let loadGeneration = 0;
+function publishImported(metas:BookMeta[], revealIds = metas.map(book => book.id)) {
+  const incoming = metas.map(lightMeta), ids = new Set(incoming.map(book => book.id));
+  useLibrary.setState(state => ({
+    books:[...incoming,...state.books.filter(book => !ids.has(book.id))],
+    importRevision:state.importRevision + 1,
+    pendingImport:{revision:state.importRevision + 1,ids:revealIds.slice(0,60)},
+  }));
 }
 
 export const useLibrary = create<LibraryState>((set, get) => ({
@@ -44,13 +59,22 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   nodes: [],
   ready: false,
   error: '',
+  importRevision: 0,
+  pendingImport: null,
+  acknowledgeImport: revision => set(state => state.pendingImport?.revision === revision ? {pendingImport:null} : {}),
 
   init: async () => {
+    const generation = ++loadGeneration;
+    const before = get();
     set({ error: '' });
     try {
       const [books, nodes] = await Promise.all([platform.listBooks(), platform.kvGet<CatNode[]>('nodes')]);
-      set({ books, nodes: nodes ?? [], ready: true });
-    } catch (e) { set({ error: e instanceof Error ? e.message : '书库暂时无法读取' }); }
+      if (generation !== loadGeneration) return;
+      set(current => ({
+        books:reconcileLibrarySnapshot(books,before.books,current.books).sort((a,b) => b.addedAt-a.addedAt),
+        nodes:reconcileLibrarySnapshot(nodes ?? [],before.nodes,current.nodes),ready:true,
+      }));
+    } catch (e) { if (generation === loadGeneration) set({ error: e instanceof Error ? e.message : '书库暂时无法读取' }); }
   },
 
   importFile: async (file: File, publish = true) => {
@@ -159,19 +183,25 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     };
     // Metadata, content, cover and original file commit together: no phantom PDF on quota failure.
     await platform.putBook(meta, chapters, epubRaw ?? undefined);
-    if (publish) set({ books: [lightMeta(meta), ...get().books] });
+    if (publish) publishImported([meta]);
     return meta;
   },
 
   importFiles: async (files, progress, signal) => {
     const pending: BookMeta[] = [], failed: string[] = []; let imported = 0;
-    const flush = () => { if (pending.length) { set({ books: [...pending.reverse(), ...get().books] }); pending.length = 0; } };
+    let revealed:string[] = [], lastPublished = performance.now();
+    const flush = () => {
+      if (!pending.length) return;
+      const incoming = [...pending].reverse();
+      revealed = [...incoming.map(book => book.id),...revealed].slice(0,60);
+      publishImported(incoming,revealed);pending.length = 0;lastPublished = performance.now();
+    };
     try {
       for (let i = 0; i < files.length; i++) {
         if (signal?.aborted) break;
         try { pending.push(lightMeta(await get().importFile(files[i], false))); imported++; }
         catch (e) { failed.push(files[i].name + '：' + (e instanceof Error ? e.message : '导入失败')); }
-        if (pending.length >= 20 || i === files.length - 1) flush();
+        if (imported === 1 || pending.length >= 20 || performance.now()-lastPublished >= 500 || i === files.length - 1) flush();
         progress(i + 1, files.length);
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
@@ -197,7 +227,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       chars: c.text.length,
     }));
     await platform.putBook(meta, chapters);
-    set({ books: [lightMeta(meta), ...get().books] });
+    publishImported([meta]);
   },
 
   removeBook: async (id: string) => {
@@ -209,25 +239,36 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   moveBooks: async (ids, nodeId) => {
     if (nodeId && !get().nodes.some((n) => n.id === nodeId)) throw new Error('目标分类已不存在');
     const selected = new Set(ids), now = Date.now();
-    const changed = get().books.filter((b) => selected.has(b.id) && b.nodeId !== nodeId).map((b) => ({ ...b, nodeId, updatedAt: now }));
+    const changed = get().books.filter((b) => selected.has(b.id) && (b.nodeId !== nodeId || b.hidden)).map((b) => ({ ...b, nodeId, hidden: false, updatedAt: Math.max(now, (b.updatedAt ?? 0) + 1) }));
     await platform.putMetas(changed);
     const updates = new Map(changed.map((b) => [b.id, b]));
     set({ books: get().books.map((b) => updates.get(b.id) ?? b) });
+  },
+
+  setBooksHidden: async (ids, hidden) => {
+    const selected = new Set(ids), now = Date.now();
+    const changed = get().books.filter(b => selected.has(b.id) && !!b.hidden !== hidden)
+      .map(b => ({...b,hidden,updatedAt:Math.max(now,(b.updatedAt ?? 0)+1)}));
+    await platform.putMetas(changed);
+    const updates = new Map(changed.map(b => [b.id,b]));
+    set({books:get().books.map(b => updates.get(b.id) ?? b)});
   },
 
   /** 编辑书籍信息（V0.3.0）：一次读取最新状态、合并全部字段、单次写回 */
   saveBookInfo: async (id, patch) => {
     const book = get().books.find((b) => b.id === id);
     if (!book) return;
-    const meta: BookMeta = { ...book, updatedAt: Date.now() };
+    const meta: BookMeta = { ...book, updatedAt: Math.max(Date.now(), (book.updatedAt ?? 0) + 1) };
     if (patch.title !== undefined) meta.title = patch.title;
     if (patch.author !== undefined) meta.author = patch.author;
     if (patch.cover !== undefined) {
+      meta.coverUpdatedAt = meta.updatedAt;
       if (patch.cover === null) { delete meta.cover; meta.hasCover = false; }
       else { meta.cover = patch.cover; meta.hasCover = true; }
     }
     if (patch.nodeId !== undefined) meta.nodeId = patch.nodeId;
     if (patch.completed !== undefined) meta.completed = patch.completed;
+    if (patch.hidden !== undefined) meta.hidden = patch.hidden;
     await platform.putMeta(meta);
     set({ books: get().books.map((b) => (b.id === id ? lightMeta(meta) : b)) });
   },
@@ -248,7 +289,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     if (!removed) return;
     // 删除当前分类后，子分类提升一级；书籍归入未分类，不删除书或后代分类。
     const nodes = get().nodes.filter((n) => n.id !== id).map((n) => n.parentId === id ? { ...n, parentId: removed.parentId, updatedAt: Date.now() } : n);
-    const changed = get().books.filter((b) => b.nodeId === id).map((b) => ({ ...b, nodeId: null, updatedAt: Date.now() }));
+    const changed = get().books.filter((b) => b.nodeId === id).map((b) => ({ ...b, nodeId: null, updatedAt: Math.max(Date.now(), (b.updatedAt ?? 0)+1) }));
     const tomb = (await platform.kvGet<SyncTombstones>('tombstones')) ?? { books: [], nodes: [] };
     if (!tomb.nodes.includes(id)) tomb.nodes.push(id);
     await platform.putMetas(changed, [{ k: 'nodes', v: nodes }, { k: 'tombstones', v: tomb }]);

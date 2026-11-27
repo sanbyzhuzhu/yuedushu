@@ -5,7 +5,7 @@ import { Panel } from './Panel';
 
 /** 分类管理和选书归类共用一个适配窄屏的面板。 */
 export function CategoryPanel({ initialIds, onClose }: { initialIds?: string[]; onClose: () => void }) {
-  const { books, nodes, addNode, renameNode, removeNode, moveBooks } = useLibrary();
+  const { books, nodes, addNode, renameNode, removeNode, moveBooks, setBooksHidden } = useLibrary();
   const [tab, setTab] = useState(initialIds ? 'books' : 'categories');
   const [selected, setSelected] = useState<string[]>(initialIds ?? []);
   const [query, setQuery] = useState('');
@@ -20,7 +20,7 @@ export function CategoryPanel({ initialIds, onClose }: { initialIds?: string[]; 
   const [deleting, setDeleting] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const visible = useMemo(() => books.filter((b) => (category === 'all' || (b.nodeId ?? '') === category)
+  const visible = useMemo(() => books.filter((b) => (category === '__hidden' ? b.hidden : !b.hidden && (category === 'all' || (b.nodeId ?? '') === category))
     && `${b.title} ${b.author}`.toLocaleLowerCase().includes(deferredQuery.trim().toLocaleLowerCase())), [books, category, deferredQuery]);
   const bookPage = useBookPage(visible, JSON.stringify([category, deferredQuery]));
   const run = async (action: () => Promise<void>) => {
@@ -34,7 +34,8 @@ export function CategoryPanel({ initialIds, onClose }: { initialIds?: string[]; 
     setName(''); setEditing(null); setMessage('分类已保存');
   });
   const move = () => run(async () => {
-    await moveBooks(selected, target || null);
+    if (target === '__hidden') await setBooksHidden(selected, true);
+    else await moveBooks(selected, target || null);
     setSelected([]);
     setMessage(`已整理 ${selected.length} 本书`);
   });
@@ -60,9 +61,9 @@ export function CategoryPanel({ initialIds, onClose }: { initialIds?: string[]; 
         {deleting === n.id ? <div className="category-confirm"><span>仅移除分类，保留书籍？</span><button disabled={busy} onClick={() => void run(async () => { await removeNode(n.id); setDeleting(null); if (editing === n.id) { setEditing(null); setName(''); } if (target === n.id) setTarget(''); if (category === n.id) setCategory('all'); setMessage('分类已移除，书籍已保留'); })}>确认删除分类</button><button disabled={busy} onClick={() => setDeleting(null)}>取消</button></div> : null}
       </div>)}
     </div> : <div className="category-books">
-      <div className="category-move"><label>移入分类<select className="field" aria-label="移入分类" disabled={busy} value={target} onChange={(e) => setTarget(e.target.value)}><option value="">未分类</option>{nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label><button className="primary" disabled={busy || !selected.length} onClick={() => void move()}>{busy ? '整理中…' : `移动选中 ${selected.length} 本`}</button></div>
+      <div className="category-move"><label>移入分类<select className="field" aria-label="移入分类" disabled={busy} value={target} onChange={(e) => setTarget(e.target.value)}><option value="">未分类</option><option value="__hidden">隐藏</option>{nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label><button className="primary" disabled={busy || !selected.length} onClick={() => void move()}>{busy ? '整理中…' : `移动选中 ${selected.length} 本`}</button></div>
       <input className="field" aria-label="查找待整理书籍" placeholder="搜书名 / 作者" value={query} onChange={(e) => setQuery(e.target.value)} disabled={busy} />
-      <select className="field" aria-label="筛选原分类" value={category} onChange={(e) => setCategory(e.target.value)} disabled={busy}><option value="all">全部分类</option><option value="">未分类</option>{nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select>
+      <select className="field" aria-label="筛选原分类" value={category} onChange={(e) => setCategory(e.target.value)} disabled={busy}><option value="all">全部分类</option><option value="">未分类</option><option value="__hidden">隐藏</option>{nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select>
       <div className="category-select"><button disabled={busy || !visible.length} onClick={() => setSelected([...new Set([...selected, ...visible.map((b) => b.id)])])}>全选当前结果</button><button disabled={busy || !selected.length} onClick={() => setSelected([])}>取消全选</button></div>
       {!visible.length ? <p className="panel-empty">没有符合条件的书</p> : null}
       <BookPages {...bookPage} disabled={busy} />

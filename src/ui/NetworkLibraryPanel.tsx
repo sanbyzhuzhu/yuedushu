@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Panel } from './Panel';
 import { platform } from '../platform/web';
 import { useLibrary } from '../store/library';
-import { downloadBook, downloadChapters, fetchCatalog, parseSources, searchSource, secureUrl, sourceChapters, GUTENBERG_POPULAR, GUTENBERG_CHINESE, gutenbergSearch, GXHJ_TEXT_SOURCE } from '../engine/networkLibrary';
+import { downloadBook, downloadChapters, fetchCatalog, parseSources, searchSource, secureUrl, webdavUrl, sourceChapters, GUTENBERG_POPULAR, GUTENBERG_CHINESE, gutenbergSearch, GXHJ_TEXT_SOURCE } from '../engine/networkLibrary';
 import { BOOK_WEBSITES, openBookWebsite } from '../platform/bookWebsites';
 import { CLASSICS_PRESETS, downloadPublicText } from '../engine/publicClassics';
 import type { BookSource, Catalog, CatalogEntry, Credentials, LibraryKind } from '../engine/networkLibrary';
@@ -102,12 +102,12 @@ export function NetworkLibraryPanel({ onClose }: { onClose: () => void }) {
   }
   async function acquire(entry: CatalogEntry, signal: AbortSignal) {
     if (entry.textPage) { await importChapters({...entry,title:catalog?.chapterBook ? `${catalog.chapterBook.title} · ${entry.title}` : entry.title},[entry],signal);return; }
-    const file = await downloadBook(entry.url, entry.filename || '', signal, credentials.current, (bytes) => setProgress(`已下载 ${(bytes / 1024 / 1024).toFixed(1)} MB`));
+    const file = await downloadBook(entry.url, entry.filename || '', signal, credentials.current, (bytes) => setProgress(`已下载 ${(bytes / 1024 / 1024).toFixed(1)} MB`), tab === 'catalog' && kind === 'webdav');
     signal.throwIfAborted(); setProgress('正在整理入架…'); const book = await importFile(file);
     if (mounted.current) setMessage(`《${book.title}》已加入书架`);
   }
   async function saveCatalog() {
-    const url = secureUrl(address.trim());
+    const url = (kind === 'webdav' ? webdavUrl : secureUrl)(address.trim());
     const item = { name: name.trim() || new URL(url).hostname, url, kind };
     const next = [...saved.filter((c) => c.url !== url || c.kind !== kind), item];
     await platform.kvSet('networkCatalogs', next); setSaved(next); setMessage('书库地址已收藏，账号密码仅在本次面板中使用');
@@ -148,13 +148,14 @@ export function NetworkLibraryPanel({ onClose }: { onClose: () => void }) {
             {(['shuge','gutenberg-australia','faded-page','gutenberg-canada','internet-archive'] as const).map(site => <button key={site} disabled={busy} onClick={() => void run(() => openBookWebsite(site))}><strong>{{shuge:'书格', 'gutenberg-australia':'古腾堡澳大利亚', 'faded-page':'Faded Page', 'gutenberg-canada':'古腾堡加拿大', 'internet-archive':'Internet Archive'}[site]} ↗</strong><small>在原站浏览与下载</small></button>)}
           </div>
         </details>
-        <p className="network-hint">也可连接 OPDS、WebDAV 或公开网页书单，地址需使用 HTTPS。</p>
+        <p className="network-hint">也可连接 OPDS、WebDAV 或公开网页书单。WebDAV 支持 HTTP 和 HTTPS，其他书库需使用 HTTPS。</p>
         {saved.length ? <div className="network-saved">{saved.map((c) => <div key={c.kind + c.url}><button disabled={busy} onClick={() => { setKind(c.kind); setAddress(c.url); setName(c.name); setCatalog(null); setHistory([]); setUsername(''); setPassword(''); credentials.current = undefined; }}>{c.name}<small>{c.kind.toUpperCase()}</small></button><button disabled={busy || !ready} aria-label={`移除书库 ${c.name}`} onClick={() => void run(async () => { const next = saved.filter((x) => x !== c); await platform.kvSet('networkCatalogs', next); setSaved(next); })}>移除</button></div>)}</div> : null}
         <label className="network-label">书库类型<select className="field" value={kind} disabled={busy} onChange={(e) => { setKind(e.target.value as LibraryKind); setCatalog(null); setHistory([]); }}><option value="opds">OPDS 书库</option><option value="webdav">WebDAV 文件夹</option><option value="web">网页书单</option><option value="github">GitHub 公开仓库</option><option value="public">公版经典书库</option></select></label>
-        <label className="network-label">书库地址<input className="field" type="url" placeholder={kind === 'github' ? 'https://github.com/作者/仓库名' : kind === 'web' ? 'https://公开网页书单' : 'https://你的书库/opds'} value={address} disabled={busy} onChange={(e) => { setAddress(e.target.value); setCatalog(null); setHistory([]); }} /></label>
+        <label className="network-label">书库地址<input className="field" type="url" placeholder={kind === 'webdav' ? 'http://云盘地址:端口/dav/' : kind === 'github' ? 'https://github.com/作者/仓库名' : kind === 'web' ? 'https://公开网页书单' : 'https://你的书库/opds'} value={address} disabled={busy} onChange={(e) => { setAddress(e.target.value); setCatalog(null); setHistory([]); }} /></label>
+        {kind === 'webdav' ? <p className="network-hint">填写 WebDAV 文件夹地址，即可浏览子目录，选择书籍下载入架。HTTP 不加密账号与内容，请仅在可信网络使用。手机连接电脑上的服务时，请填电脑的局域网 IP；127.0.0.1 指向手机自身。</p> : null}
         {kind === 'github' ? <p className="network-hint">填写仓库主页，可逐层浏览 EPUB、PDF、TXT、Markdown 等文件；私有仓库、Git LFS 指针及仅含数据的 JSON 书库暂不支持。无需 Git 客户端，账号密码不会发送给 GitHub。</p> : null}
         <details><summary>名称与访问账号（可选）</summary><label className="network-label">收藏名称<input className="field" value={name} disabled={busy} onChange={(e) => setName(e.target.value)} /></label><label className="network-label">账号<input className="field" autoComplete="off" value={username} disabled={busy} onChange={(e) => setUsername(e.target.value)} /></label><label className="network-label">密码 / 应用密码<input className="field" type="password" autoComplete="off" value={password} disabled={busy} onChange={(e) => setPassword(e.target.value)} /></label><p className="network-hint">密码不保存，关闭面板后清除。跨站下载不会携带书库密码。</p></details>
-        <div className="network-actions"><button className="primary" disabled={busy || !address.trim()} onClick={() => void run(async (signal) => { const url = secureUrl(address.trim()); credentials.current = username ? { origin: new URL(url).origin, username, password } : undefined; await browse(url, [], signal); })}>打开书库</button><button disabled={busy || !ready || !address.trim()} onClick={() => void run(saveCatalog)}>收藏地址</button></div>
+        <div className="network-actions"><button className="primary" disabled={busy || !address.trim()} onClick={() => void run(async (signal) => { const url = (kind === 'webdav' ? webdavUrl : secureUrl)(address.trim()); credentials.current = username ? { origin: new URL(url).origin, username, password } : undefined; await browse(url, [], signal); })}>打开书库</button><button disabled={busy || !ready || !address.trim()} onClick={() => void run(saveCatalog)}>收藏地址</button></div>
         {kind === 'public' && address.startsWith('https://ctext.org/') ? <button disabled={busy} onClick={() => void run(() => openCatalogWebsite(address))}>在中国哲学书原站打开 ↗</button> : null}
         {catalog ? <section className="network-results"><div className="network-result-head"><h4>{catalog.title}</h4>{history.length > 1 ? <button disabled={busy} onClick={() => void run((signal) => browse(history[history.length - 2], history.slice(0, -2), signal))}>返回上层</button> : null}</div>{catalog.notice ? <p className="network-hint">{catalog.notice}</p> : null}{catalog.website ? <button disabled={busy} onClick={() => void run(() => openCatalogWebsite(catalog.website!))}>在原站打开本页 ↗</button> : null}
           {catalog.chapterBook ? <section className="network-note"><h4>{catalog.chapterBook.title}</h4><p>共 {catalog.chapterBook.chapters.length} 章，可选取一段合成一本书。</p><div className="network-range"><label className="network-label">起始章节<input className="field" type="number" min={1} max={catalog.chapterBook.chapters.length} value={chapterStart} disabled={busy} onChange={(e) => setChapterStart(Number(e.target.value))} /></label><label className="network-label">下载章数<input className="field" type="number" min={1} max={10000} value={chapterCount} disabled={busy} onChange={(e) => setChapterCount(Number(e.target.value))} /></label></div><p className="network-hint">{catalog.chapterBook.chapters[chapterStart - 1]?.title || '请选择有效的起始章节'} · 每次最多 10000 章 · 总正文最多 256 MiB</p><button className="primary" disabled={busy || !Number.isInteger(chapterStart) || !Number.isInteger(chapterCount) || chapterStart < 1 || chapterStart > catalog.chapterBook.chapters.length || chapterCount < 1 || chapterCount > 10000} onClick={() => void run(async (signal) => {

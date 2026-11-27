@@ -2,7 +2,7 @@
  *  - 进度：时间戳新者胜（含设备名）
  *  - 笔记：按 id 并集 + 删除墓碑并集
  *  - 分类/书架：并集 + 墓碑；同 id 冲突取 updatedAt 新者
- *  - 书 meta：新者胜；cover 以存在者优先（manifest 层不带 cover） */
+ *  - 书 meta：新者胜；cover 按独立修订合并（manifest 只带标记和修订时间） */
 import type { Annotation, BookMeta, CatNode } from '../engine/types';
 import type { RemoteBook, RemoteManifest, SyncTombstones } from './types';
 
@@ -10,13 +10,27 @@ export function union<T>(a: T[], b: T[]): T[] {
   return [...new Set([...a, ...b])];
 }
 
-function newerMeta(a: BookMeta, b: BookMeta): BookMeta {
+export function newerMeta(a: BookMeta, b: BookMeta): BookMeta {
   const ta = a.updatedAt ?? a.addedAt ?? 0;
   const tb = b.updatedAt ?? b.addedAt ?? 0;
   const win = tb > ta ? b : a;
-  // cover 以存在者优先（远端 manifest 无 cover）
-  const cover = win.cover ?? a.cover ?? b.cover;
-  return cover ? { ...win, cover } : { ...win };
+  const ca = a.coverUpdatedAt ?? 0, cb = b.coverUpdatedAt ?? 0;
+  const owner = cb > ca ? b : a;
+  const result = { ...win };
+  delete result.cover;
+  if (ca || cb) {
+    result.coverUpdatedAt = Math.max(ca, cb);
+    // A manifest can announce a new cover without carrying its bytes. Never label
+    // the previous cover with that new revision or resurrect an explicit removal.
+    result.hasCover = owner.hasCover ?? !!owner.cover;
+    const bytes = owner.cover ?? (ca === cb ? (a.cover ?? b.cover) : undefined);
+    if (result.hasCover && bytes) result.cover = bytes;
+  } else {
+    const cover = win.cover ?? a.cover ?? b.cover;
+    result.hasCover = !!cover || a.hasCover === true || b.hasCover === true;
+    if (cover) result.cover = cover;
+  }
+  return result;
 }
 
 export interface ManifestMergeResult {

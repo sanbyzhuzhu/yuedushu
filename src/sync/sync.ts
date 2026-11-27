@@ -12,7 +12,7 @@ import { lightMeta, platform } from '../platform/web';
 import { useLibrary } from '../store/library';
 import { useBookStyles } from '../store/bookStyles';
 import { mergeSyncedAnnotations } from '../store/annotations';
-import { mergeManifest, mergeBook, union } from './merge';
+import { mergeManifest, mergeBook, newerMeta, union } from './merge';
 import { WebDAVClient } from './webdav';
 import { detectPreset, WEBDAV_PRESETS } from './providers';
 import type { LegacySyncConfig, RemoteBook, RemoteManifest, SyncAccount, SyncConfig, SyncTombstones } from './types';
@@ -97,7 +97,7 @@ function uid(): string {
 let loopTimer: ReturnType<typeof setInterval> | null = null;
 
 function stripCover(m: BookMeta): Omit<BookMeta, 'cover'> {
-  const { cover: _c, hasCover: _h, ...rest } = m;
+  const { cover: _c, ...rest } = m;
   return rest;
 }
 
@@ -334,7 +334,7 @@ async function syncAccount(acc: SyncAccount): Promise<{ reqCount: number; fileFa
 
     let remote =
       remoteRev !== undefined
-        ? await client.getJSON<RemoteBook>(`books/${bookCloudName(meta.title, id)}.json`)
+        ? await client.getJSON<RemoteBook>(`books/${bookCloudName(remoteById.get(id)?.title ?? meta.title, id)}.json`)
         : null;
     // 迁移期：合并云端旧命名文件，避免覆盖其他设备尚未同步的数据
     if (migrate && remoteRev !== undefined) {
@@ -343,15 +343,17 @@ async function syncAccount(acc: SyncAccount): Promise<{ reqCount: number; fileFa
         remote = remote ? mergeBook({ local: legacy, remote, deviceId: device }).merged : legacy;
       }
     }
+    const currentMeta = useLibrary.getState().books.find(b => b.id === id);
+    const ownMeta = currentMeta ?? meta;
     const local: RemoteBook = {
       bookId: id,
-      updatedAt: localRev,
+      updatedAt: Math.max(localRev, ownMeta.updatedAt ?? 0),
       device,
-      meta: meta.hasCover && !meta.cover ? { ...meta, cover: await platform.getCover(id) } : meta,
+      meta: ownMeta.hasCover && !ownMeta.cover ? { ...ownMeta, cover: await platform.getCover(id) } : ownMeta,
       progress,
       annotations: annData.list,
       deletedAnnotationIds: annData.deleted,
-      rev: localRev,
+      rev: Math.max(localRev, ownMeta.updatedAt ?? 0),
       ...(localContent ? { content: localContent } : {}),
       ...(localFile ? { fileInfo: { ext: meta.format, size: localFile.byteLength } } : {}),
       ...(localStyle ? { style: localStyle } : {}),
@@ -430,16 +432,28 @@ async function syncAccount(acc: SyncAccount): Promise<{ reqCount: number; fileFa
   const currentById = new Map(current.books.map((b) => [b.id, b]));
   const changedMeta = [...mm.metas.values()].filter((m) => {
     const cur = currentById.get(m.id);
-    return !cur || JSON.stringify(cur) !== JSON.stringify(m);
+    if (!cur && lib.books.some(b => b.id === m.id)) return false;
+    return !cur || JSON.stringify(cur) !== JSON.stringify(newerMeta(cur, m));
   });
-  for (const m of changedMeta) await platform.putMeta(m);
+  for (const m of changedMeta) {
+    const cur = useLibrary.getState().books.find(b => b.id === m.id);
+    await platform.putMeta(cur ? newerMeta(cur, m) : m);
+  }
   if (JSON.stringify(current.nodes) !== JSON.stringify(mm.nodes)) {
     await platform.kvSet('nodes', mm.nodes);
   }
   await platform.kvSet('tombstones', { books: mm.deletedBooks, nodes: mm.deletedNodes });
+  const latest = useLibrary.getState();
+  const finalBooks = new Map([...mm.metas.values()].map(m => [m.id, lightMeta(m)]));
+  for (const old of lib.books) if (!latest.books.some(b => b.id === old.id)) finalBooks.delete(old.id);
+  for (const b of latest.books) {
+    if (mm.deletedBooks.includes(b.id)) continue;
+    const merged = finalBooks.get(b.id);
+    finalBooks.set(b.id, merged ? lightMeta(newerMeta(b, merged)) : b);
+  }
   useLibrary.setState({
     nodes: mm.nodes,
-    books: [...mm.metas.values()].map(lightMeta).sort((a, b) => b.addedAt - a.addedAt),
+    books: [...finalBooks.values()].sort((a, b) => b.addedAt - a.addedAt),
   });
 
   const manifest: RemoteManifest = {

@@ -7,6 +7,7 @@ import { Bookshelf } from './ui/Bookshelf';
 import { Reader } from './ui/Reader';
 import { ExternalImports } from './ui/ExternalImports';
 import { useAppUpdate } from './store/appUpdate';
+import { WifiReceiver } from './ui/WifiReceiver';
 
 export default function App() {
   const initLibrary = useLibrary((st) => st.init);
@@ -73,6 +74,7 @@ export default function App() {
         ? <Reader key={screen.id} bookId={screen.id} onBack={() => setScreen({ name: 'shelf' })} onOpen={(id) => setScreen({ name: 'reader', id })} />
         : <Bookshelf onOpen={(id) => setScreen({ name: 'reader', id })} />}
       <ExternalImports onOpen={(id) => setScreen({ name: 'reader', id })} />
+      <WifiReceiver />
       {exitHint ? <div className="exit-hint">再按一次返回键退出</div> : null}
     </>
   );

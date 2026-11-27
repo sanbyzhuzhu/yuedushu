@@ -1,9 +1,19 @@
 {
-  "version": "0.4.6",
-  "publishedAt": "2026-11-26T00:28:20.434Z",
-  "notes": "- “关于阅读树”的开发者署名统一为“朱振坚（公号小二菜园）”。\n- 将署名修订作为独立新版本发布，沿用原应用标识和安卓正式签名，便于 0.4.5 检测新版并覆盖升级。\n- 同步更新两端发布说明、下载入口和宣发材料；宣发二维码使用固定的最新版本入口。\n- 保留 0.4.5 的本地阅读、横竖排、划线笔记、目录自动定位与安静更新功能。",
+  "version": "0.4.10",
+  "publishedAt": "2026-11-26T22:53:20.525Z",
+  "notes": "- 新增“更多 → Wi-Fi 传书”：电脑和安卓可手动开启临时局域网接收服务，另一台设备使用浏览器输入地址及 8 位配对码后上传电子书，无需安装发送端软件。\n- 支持多文件依次上传、中文文件名和单本 256 MiB；完整接收后调用现有导入器，发送端区分“上传完成”和“已入架”，损坏书籍会报告失败。\n- 接收记录显示进度、等待入架、已入架及失败原因，沿用新入架即时刷新；关闭传书页或点击停止接收会关闭监听，完整收到的书继续入架，中断上传不会产生空书。\n- 服务默认关闭，每次开启使用新配对信息；限制局域网来源、配对重试、待处理文件数量及缓存容量，不提供查看或下载现有藏书的接口。\n- 本版暂以 IPv4 局域网地址连接。接收时需保持阅读树在前台，安卓实际跨设备连接及系统网络策略仍需对应手机验收。",
   "downloads": {
-    "windows": "https://gitee.com/sanbyzhu/yuedushu/raw/downloads/v0.4.6/ReadingTree_0.4.6_Windows_x64_Setup.exe",
-    "android": "https://github.com/sanbyzhuzhu/yuedushu/releases/download/v0.4.6/ReadingTree_0.4.6_Android.apk"
+    "windows": "https://gitee.com/sanbyzhu/yuedushu/raw/downloads/v0.4.10/ReadingTree_0.4.10_Windows_x64_Setup.exe",
+    "android": "https://github.com/sanbyzhuzhu/yuedushu/releases/download/v0.4.10/ReadingTree_0.4.10_Android.apk"
+  },
+  "sha256": {
+    "windows": "ce46cb378882f7359574111f076e1558182f735afc37f6997ce817c60782a260",
+    "android": "5ab07f36025cb4086a7fc58561eda2219341ccd8890e0f68fd24c70bcc0b6083"
+  },
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://gitee.com/sanbyzhu/yuedushu/raw/downloads/v0.4.10/ReadingTree_0.4.10_Windows_x64_Setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUHlkT1F2M2F2cmRvKzFhNERKWTRuTHlxOEp2TmdUU0hBZ09hR0JPSTBsV0lJQXU0anBiTFlDTDgrckg5VWNnQ0ZjMnQzbnJmaGFWTUszM3hZWDhLSkx2TEIxSU9GSndFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NzMzNjAwCWZpbGU66ZiF6K+75qCRXzAuNC4xMF9XaW5kb3dzX3g2NF/lronoo4XniYguZXhlCXZlcnNpb246MC40LjEwCjVudDltcUdJNGZWaE1HY09kb1NYTkVHM0JFL1pGbDA3UVhtcmtUN08yNld6LzlxQzRlbVlISTRLWW1QbVZMblZZMkJUNXU3eGhUMndwZWVyeklHYkNnPT0K"
+    }
   }
 }

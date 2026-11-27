@@ -68,7 +68,22 @@ async function write(stores: string[], action: (t: IDBTransaction) => void): Pro
   });
 }
 
-function saveMeta(t: IDBTransaction, meta: BookMeta) {
+function saveMeta(t: IDBTransaction, meta: BookMeta, protect = true) {
+  if (protect) {
+    const previous = t.objectStore('meta').get(meta.id);
+    previous.onsuccess = () => {
+      const current = previous.result as BookMeta | undefined;
+      if (current && (current.updatedAt ?? current.addedAt) > (meta.updatedAt ?? meta.addedAt)) return;
+      const next = { ...meta };
+      if ((current?.coverUpdatedAt ?? 0) > (next.coverUpdatedAt ?? 0)) {
+        next.coverUpdatedAt = current!.coverUpdatedAt;
+        next.hasCover = current!.hasCover;
+        delete next.cover;
+      }
+      saveMeta(t, next, false);
+    };
+    return;
+  }
   t.objectStore('meta').put(lightMeta(meta));
   if (meta.cover) t.objectStore('covers').put(meta.cover, meta.id);
   else if (!meta.hasCover) t.objectStore('covers').delete(meta.id);
@@ -146,7 +161,7 @@ export const webAdapter: PlatformAdapter = {
   async replaceAll(metas, contents, kv, merge = false, deleteKeys = []) {
     await write(['meta', 'covers', 'content', 'kv'], (t) => {
       if (!merge) for (const name of ['meta', 'covers', 'content', 'kv']) t.objectStore(name).clear();
-      for (const meta of metas) saveMeta(t, meta);
+      for (const meta of metas) saveMeta(t, meta, false);
       for (const c of contents) t.objectStore('content').put(c.chapters, c.id);
       for (const item of kv) t.objectStore('kv').put(item);
       for (const key of deleteKeys) t.objectStore('kv').delete(key);

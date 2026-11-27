@@ -16,6 +16,9 @@ assert.ok(frontend.includes(Buffer.from(version)), 'Missing visible release vers
 for (const text of ['检查更新', '忽略此版本', '确认打开下载', 'sanbyzhu/yuedushu', 'open_update_url']) {
   assert.ok(frontend.includes(Buffer.from(text)), 'Missing quiet update feature: ' + text);
 }
+for (const text of ['应用内下载', '确认安装并重启', '移入隐藏分组', '__hidden', 'coverUpdatedAt', 'download_app_update', 'ReadingTreeNativeUpdate']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing in-app updater/hidden shelf/cover fix: ' + text);
+for (const text of ['pendingImport','importRevision','acknowledgeImport']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing immediate shelf refresh: ' + text);
+for (const text of ['Wi-Fi 传书','wifi_start','wifi_read_chunk','wifi-transfer']) assert.ok(frontend.includes(Buffer.from(text)), 'Missing Wi-Fi receiver: ' + text);
 for (const text of ['划线操作', '复制原文', '复制笔记', '已复制原文', '这条划线有笔记']) {
   assert.ok(frontend.includes(Buffer.from(text)), 'Missing highlight quick action: ' + text);
 }
@@ -41,9 +44,14 @@ const catalog = fs.readFileSync(path.join('dist/assets', catalogName));
 const extraJavascript = fs.readdirSync('dist/assets').filter(name => name.endsWith('.js') && name !== catalogName && name !== notesName)
   .map(name => ({ name, bytes: fs.readFileSync(path.join('dist/assets', name)) })).filter(asset => !asset.bytes.equals(frontend));
 const libraryJavascript = Buffer.concat([catalog, ...extraJavascript.map(asset => asset.bytes)]);
+for (const text of ['WebDAV 支持 HTTP 和 HTTPS', 'fetchWebdav', '书库跳转从 HTTPS 降为 HTTP']) assert.ok(libraryJavascript.includes(Buffer.from(text)), 'Missing HTTP WebDAV fix: ' + text);
 const styleName = fs.readdirSync('dist/assets').find((name) => /^index-.*\.css$/.test(name));
 assert.ok(styleName, 'Missing production stylesheet');
 const stylesheet = fs.readFileSync(path.join('dist/assets', styleName));
+const wifiStyleName = fs.readdirSync('dist/assets').find(name => /^WifiTransferPanel-.*\.css$/.test(name));
+assert.ok(wifiStyleName,'Missing lazy Wi-Fi panel stylesheet');
+const wifiStyles = fs.readFileSync(path.join('dist/assets',wifiStyleName));
+const wifiPage = fs.readFileSync('src-tauri/src/wifi_upload.html');
 for (const text of ['.all-categories', '.book-page-compact', '.shelf-search']) assert.ok(stylesheet.includes(Buffer.from(text)), 'Missing home style: ' + text);
 for (const text of ['国学汉籍', 'GitHub', '中国国家图书馆', 'standard-ebooks']) assert.ok(libraryJavascript.includes(Buffer.from(text)), 'Missing library preset: ' + text);
 for (const text of ['中文维基文库','中华诗词','Kanripo','中国哲学书电子化计划','GITenberg','Standard Ebooks','书格']) assert.ok(libraryJavascript.includes(Buffer.from(text)), 'Missing selected public library: ' + text);
@@ -66,6 +74,8 @@ assert.ok(Object.entries(apk).some(([name, bytes]) => name.endsWith('.dex') && B
 assert.ok(Object.entries(apk).some(([name, bytes]) => name.endsWith('.dex') && Buffer.from(bytes).includes(Buffer.from('national-library')) && Buffer.from(bytes).includes(Buffer.from('openWebsite'))), 'APK lacks the new website bridge');
 assert.ok(Object.entries(apk).some(([name, bytes]) => name.endsWith('.dex') && Buffer.from(bytes).includes(Buffer.from('ReadingTreeNativeFiles')) && Buffer.from(bytes).includes(Buffer.from('Download/阅读树'))), 'APK lacks public Downloads file saving');
 assert.ok(Object.entries(apk).some(([name, bytes]) => name.endsWith('.dex') && Buffer.from(bytes).includes(Buffer.from('ReadingTreeNativeHttp'))), 'APK lacks Android system HTTPS fallback');
+assert.ok(Object.entries(apk).some(([name, bytes]) => name.endsWith('.dex') && Buffer.from(bytes).includes(Buffer.from('fetchWebdav'))), 'APK lacks explicit HTTP WebDAV bridge');
+for (const text of ['ReadingTreeNativeUpdate','canRequestPackageInstalls','getPackageArchiveInfo']) assert.ok(Object.entries(apk).some(([name,bytes]) => name.endsWith('.dex') && Buffer.from(bytes).includes(Buffer.from(text))), 'APK lacks verified installer bridge: ' + text);
 assert.ok(Object.entries(apk).some(([name, bytes]) => name.endsWith('.dex') && Buffer.from(bytes).includes(Buffer.from('ReadingTreeNativeImports')) && Buffer.from(bytes).includes(Buffer.from('readChunk'))), 'APK lacks Android external book import bridge');
 assert.ok(Object.entries(apk).some(([name, bytes]) => name.endsWith('.dex') && Buffer.from(bytes).includes(Buffer.from('openUpdateUrl'))), 'APK lacks confirmed update download bridge');
 for (const [abi, target] of [['arm64-v8a', 'aarch64-linux-android'], ['armeabi-v7a', 'armv7-linux-androideabi']]) {
@@ -75,6 +85,8 @@ for (const [abi, target] of [['arm64-v8a', 'aarch64-linux-android'], ['armeabi-v
   assert.ok(Buffer.from(lib).includes(embeddedAsset(target, catalog)), 'APK contains stale library chunk: ' + abi);
   assert.ok(Buffer.from(lib).includes(embeddedAsset(target, notes)), 'APK contains stale notes manager: ' + abi);
   assert.ok(Buffer.from(lib).includes(embeddedAsset(target, stylesheet)), 'APK contains stale home styles: ' + abi);
+  assert.ok(Buffer.from(lib).includes(embeddedAsset(target,wifiStyles)),'APK contains stale Wi-Fi styles: '+abi);
+  assert.ok(Buffer.from(lib).includes(wifiPage),'APK lacks current native Wi-Fi upload page: '+abi);
   for (const asset of extraJavascript) assert.ok(Buffer.from(lib).includes(embeddedAsset(target, asset.bytes)), 'APK contains stale shared/runtime chunk: ' + abi + '/' + asset.name);
   console.log('✓ ' + abi + ': APK embedded frontend, styles and library chunk match the current production bundle byte for byte');
 }
@@ -86,6 +98,8 @@ if (!process.argv.includes('--android-only')) {
   assert.ok(fs.readFileSync(windows).includes(embeddedAsset('', notes)), 'Windows binary contains stale notes manager');
   assert.ok(fs.readFileSync(windows).includes(embeddedAsset('', stylesheet)), 'Windows binary contains stale home styles');
   const executable = fs.readFileSync(windows);
+  assert.ok(executable.includes(embeddedAsset('',wifiStyles)),'Windows contains stale Wi-Fi styles');
+  assert.ok(executable.includes(wifiPage),'Windows lacks current native Wi-Fi upload page');
   for (const asset of extraJavascript) assert.ok(executable.includes(embeddedAsset('', asset.bytes)), 'Windows contains stale shared/runtime chunk: ' + asset.name);
   console.log('✓ Windows executable embeds the same verified frontend, styles and library chunk');
 }

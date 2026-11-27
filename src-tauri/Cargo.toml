@@ -1,6 +1,6 @@
 [package]
 name = "reading-tree"
-version = "0.4.6"
+version = "0.4.10"
 description = "阅读树 · 极简古典风电子书阅读器"
 authors = ["reading-tree"]
 license = ""
@@ -26,6 +26,12 @@ log = "0.4"
 tauri = { version = "2.11.6", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-http = "=2.6.1" # 与 npm @tauri-apps/plugin-http 2.6.1 对齐（npm 端无 2.7）
+axum = "0.8"
+http-body-util = "0.1"
+if-addrs = "0.13"
+getrandom = "0.3"
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "net", "fs", "io-util", "time"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri = { version = "2.11.6", features = ["tray-icon"] }
+tauri-plugin-updater = "2"

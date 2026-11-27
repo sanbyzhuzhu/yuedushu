@@ -24,8 +24,10 @@ vi.mock('../src/platform/web', () => {
     },
     kvEntries: async (prefix: string) =>
       [...kv.entries()].filter(([k]) => k.startsWith(prefix)).map(([k, v]) => ({ k, v: clone(v) })),
-    putMeta: async (m: { id: string }) => {
+    putMeta: async (m: { id: string; cover?: string; hasCover?: boolean }) => {
       metas.set(m.id, clone(m));
+      if (m.cover) covers.set(m.id,m.cover);
+      else if (m.hasCover === false) covers.delete(m.id);
     },
     deleteBook: async (id: string) => {
       metas.delete(id);
@@ -42,7 +44,7 @@ vi.mock('../src/platform/web', () => {
     const { cover, ...rest } = m;
     return { ...rest, hasCover: !!cover || m.hasCover === true };
   };
-  return { platform, lightMeta, __kv: kv };
+  return { platform, lightMeta, __kv: kv, __covers: covers };
 });
 
 vi.mock('../src/store/library', () => {
@@ -78,6 +80,7 @@ class FakeDav {
   files = new Map<string, string>();
   /** 模拟网盘转 WebDAV 代理不支持上传：files/ 下的 PUT 一律 500 */
   failFiles = false;
+  onRequest?: (method:string,rel:string) => void;
   constructor(public base: string) {}
 }
 
@@ -101,6 +104,7 @@ function davFetch(url: string, init: RequestInit): Promise<Response> {
 
   const rel = decodeURIComponent(url.slice(remote.base.length)).replace(/\/+$/, '');
   const method = init.method ?? 'GET';
+  remote.onRequest?.(method,rel);
   const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
   if (method === 'MKCOL') {
     if (remote.dirs.has(rel)) return Promise.resolve(new Response(null, { status: 405 }));
@@ -156,6 +160,30 @@ beforeAll(() => {
 });
 
 describe('多账号 WebDAV 同步（V0.4.0）', () => {
+  it('同步过程中刚保存的封面和隐藏状态不被旧快照覆盖，下次同步继续上传',async()=>{
+    reset();seedRemote('https://a.example/dav/','ua','pa');
+    const covers=(webPlatform as unknown as {__covers:Map<string,string>}).__covers;covers.clear();covers.set('book1','blue');
+    const original={...book,updatedAt:100,coverUpdatedAt:100,hasCover:true};
+    useLibrary.setState({books:[original] as never,nodes:[]});
+    kv().set('sync-config',{enabled:true,intervalMinutes:3,accounts:[{id:'accA',enabled:true,url:'https://a.example/dav/',username:'ua',password:'pa',basePath:'阅读树',backupBooks:false,rememberPassword:true}]});
+    let edited=false;
+    remotes[0].onRequest=(method,rel)=>{
+      if(!edited && method==='PUT' && rel.includes('/books/')) {
+        edited=true;covers.set('book1','green');
+        useLibrary.setState({books:[{...original,hidden:true,updatedAt:500,coverUpdatedAt:500}] as never});
+      }
+    };
+    await useSync.getState().init();await useSync.getState().syncNow();
+    expect(useSync.getState().status).toBe('ok');
+    expect(useLibrary.getState().books[0]).toMatchObject({hidden:true,hasCover:true,coverUpdatedAt:500});
+    expect(covers.get('book1')).toBe('green');
+    await useSync.getState().syncNow();
+    const remote=JSON.parse(remotes[0].files.get('阅读树/books/测试书__book1.json')!);
+    expect(remote.meta).toMatchObject({cover:'green',hidden:true,hasCover:true,coverUpdatedAt:500});
+    const manifest=JSON.parse(remotes[0].files.get('阅读树/manifest.json')!);
+    expect(manifest.books[0]).toMatchObject({hasCover:true,coverUpdatedAt:500,hidden:true});
+    expect(manifest.books[0].cover).toBeUndefined();
+  },30000);
   it(
     'V0.3.x 单账号配置自动迁移为 accounts[0]，同步水位随键名迁移',
     async () => {

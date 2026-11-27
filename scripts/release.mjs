@@ -50,6 +50,19 @@ function androidArtifact() {
   const flavor = debug ? 'debug' : 'release';
   copy(`src-tauri/gen/android/app/build/outputs/apk/universal/${flavor}/app-universal-${flavor}.apk`, `阅读树_${version}_Android_${flavor}.apk`);
 }
+function signWindowsUpdate() {
+  const localPath = '.updater-signing.local.json';
+  const local = fs.existsSync(localPath) ? JSON.parse(fs.readFileSync(localPath, 'utf8')) : {};
+  const key = process.env.TAURI_SIGNING_PRIVATE_KEY || local.privateKey;
+  if (!key) throw new Error('Missing updater signing key. Restore .updater-signing.local.json or TAURI_SIGNING_PRIVATE_KEY; never generate a different key for an existing update channel.');
+  const file = path.join(output, `阅读树_${version}_Windows_x64_安装版.exe`);
+  const result = spawnSync(process.execPath, ['node_modules/@tauri-apps/cli/tauri.js','signer','sign','--app-version',version,file], {
+    cwd:root, windowsHide:true, encoding:'utf8', env:{...env, TAURI_SIGNING_PRIVATE_KEY:key, TAURI_SIGNING_PRIVATE_KEY_PASSWORD:process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? local.password ?? ''},
+  });
+  if (result.status !== 0 || !fs.existsSync(file + '.sig')) throw new Error('Windows updater signing failed (signer output suppressed to protect signing material).');
+  console.log('Signed Windows updater package, bound to release version.');
+  return fs.readFileSync(file + '.sig', 'utf8').trim();
+}
 function sourceArchive() {
   const git = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { encoding: 'utf8', windowsHide: true });
   const forbidden = (name) => /(^|\/)(node_modules|target|build|dist|releases|output|\.git|\.gradle|\.gradle-home|\.tmp|\.tauri|\.idea|\.playwright-cli)(\/|$)/.test(name)
@@ -110,8 +123,12 @@ if (['all', 'collect'].includes(mode)) {
     downloads[target] = publishing.downloads[target].replaceAll('{version}', version);
     if (new URL(downloads[target]).protocol !== 'https:') throw new Error('Release downloads must use HTTPS');
   }
+  const sha256 = {};
+  for (const [target, name] of [['windows', `阅读树_${version}_Windows_x64_安装版.exe`], ['android', `阅读树_${version}_Android_release.apk`]]) sha256[target] = createHash('sha256').update(fs.readFileSync(path.join(output,name))).digest('hex');
+  const signature = signWindowsUpdate();
+  const notes = releaseSection ? releaseSection.slice(releaseSection.indexOf('\n') + 1).trim() : '';
   fs.writeFileSync(path.join(output, 'update.json'), JSON.stringify({ version, publishedAt: new Date().toISOString(),
-    notes: releaseSection ? releaseSection.slice(releaseSection.indexOf('\n') + 1).trim() : '', downloads }, null, 2) + '\n');
+    notes, downloads, sha256, platforms:{'windows-x86_64':{url:downloads.windows,signature}} }, null, 2) + '\n');
   console.log('Saved update.json (publish release assets before making this manifest live)');
 }
 if (mode === 'all' || mode === 'source' || mode === 'collect') sourceArchive();

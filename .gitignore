@@ -11,5 +11,6 @@ vite.config.ts.timestamp-*.mjs
 output/playwright/
 releases/
 .android-signing.local.json
+.updater-signing.local.json
 *.keystore
 *.jks

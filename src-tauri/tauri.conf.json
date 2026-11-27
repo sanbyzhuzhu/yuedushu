@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "阅读树",
-  "version": "0.4.6",
+  "version": "0.4.10",
   "identifier": "com.readingtree.app",
   "build": {
     "frontendDist": "../dist",
@@ -36,6 +36,15 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFEQUY3NkJGOTBEM0M5Q0YKUldUUHlkT1F2M2F2clNlZVM3aGxVNDZGVzRmZkNWb0M5ZllncWM2VE1aS3J5OWluOVZXdU5EZFcK",
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "quiet"
+      }
     }
   }
 }

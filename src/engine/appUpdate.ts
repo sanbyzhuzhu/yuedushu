@@ -11,6 +11,8 @@ export type UpdateManifest = {
   notes: string;
   publishedAt: string;
   downloads: Partial<Record<'windows' | 'android', string>>;
+  sha256?: Partial<Record<'windows' | 'android', string>>;
+  platforms?: Record<string, { url: string; signature: string }>;
 };
 export type UpdatePreferences = {
   source: string;
@@ -51,8 +53,22 @@ export function parseUpdateManifest(raw: unknown): UpdateManifest {
     }
   }
   if (!downloads.windows && !downloads.android) throw new Error('更新说明没有可用的安装包');
+  const sha256: NonNullable<UpdateManifest['sha256']> = {};
+  const hashes = input.sha256 as Record<string, unknown> | undefined;
+  for (const target of ['windows', 'android'] as const) {
+    const hash = hashes?.[target];
+    if (hash !== undefined) {
+      if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/i.test(hash)) throw new Error('安装包校验值格式不正确');
+      sha256[target] = hash.toLowerCase();
+    }
+  }
+  const platforms: NonNullable<UpdateManifest['platforms']> = {};
+  const windows = (input.platforms as Record<string, {url?: unknown; signature?: unknown}> | undefined)?.['windows-x86_64'];
+  if (windows && typeof windows.url === 'string' && typeof windows.signature === 'string' && windows.signature.length <= 16384) {
+    platforms['windows-x86_64'] = {url:updateUrl(windows.url),signature:windows.signature};
+  }
   return { version: input.version, notes: typeof input.notes === 'string' ? input.notes.slice(0, 20000) : '',
-    publishedAt: typeof input.publishedAt === 'string' ? input.publishedAt.slice(0, 80) : '', downloads };
+    publishedAt: typeof input.publishedAt === 'string' ? input.publishedAt.slice(0, 80) : '', downloads, sha256, platforms };
 }
 
 export function updateTarget(): UpdateTarget {

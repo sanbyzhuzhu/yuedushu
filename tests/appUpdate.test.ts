@@ -20,6 +20,14 @@ it('compares numeric versions and rejects malformed release versions', () => {
   expect(compareVersions(APP_VERSION, APP_VERSION)).toBe(0);
   expect(() => compareVersions('9.0.0-beta', APP_VERSION)).toThrow();
 });
+it('accepts signed in-app metadata while keeping legacy download feeds compatible',()=>{
+  expect(parseUpdateManifest(release).downloads.windows).toBe(release.downloads.windows);
+  const hash='a'.repeat(64);
+  const parsed=parseUpdateManifest({...release,sha256:{android:hash},platforms:{'windows-x86_64':{url:release.downloads.windows,signature:'signed'}}});
+  expect(parsed.sha256?.android).toBe(hash);expect(parsed.platforms?.['windows-x86_64'].signature).toBe('signed');
+  expect(()=>parseUpdateManifest({...release,sha256:{android:'bad'}})).toThrow();
+  expect(()=>parseUpdateManifest({...release,platforms:{'windows-x86_64':{url:'http://bad.test/app.exe',signature:'signed'}}})).toThrow();
+});
 it('rejects unsafe source and download links', () => {
   for (const address of ['javascript:alert(1)', 'file:///app.exe', 'http://gitee.com/app.exe', 'https://user:pass@gitee.com/app.exe']) {
     expect(() => updateUrl(address)).toThrow();

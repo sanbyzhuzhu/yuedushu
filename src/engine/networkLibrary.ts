@@ -20,6 +20,13 @@ export function secureUrl(value: string, base?: string): string {
   return url.href;
 }
 const local = (node: Document | Element, name: string) => Array.from(node.getElementsByTagNameNS('*', name));
+/** HTTP is an explicit option for a user's own WebDAV, never for public sources. */
+export function webdavUrl(value: string, base?: string): string {
+  const url = new URL(value, base);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('WebDAV 请使用 HTTP 或 HTTPS 地址，账号密码请填在独立输入框。');
+  url.hash = '';
+  return url.href;
+}
 function xml(text: string) {
   if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('目录包含不支持的 XML 实体');
   const doc = new DOMParser().parseFromString(text, 'application/xml');
@@ -78,7 +85,8 @@ export function parseWebdav(text: string, base: string): Catalog {
   for (const response of local(doc, 'response')) {
     const props = local(response, 'propstat').filter((p) => /\s2\d\d\s/.test(label(p, 'status'))).flatMap((p) => local(p, 'prop'));
     if (!props.length) continue;
-    const url = maybeUrl(label(response, 'href'), base); if (!url) continue;
+    let url: string;
+    try { const href = label(response, 'href'); if (!href) continue; url = webdavUrl(href, base); } catch { continue; }
     const target = new URL(url);
     if (target.origin !== root.origin || target.pathname.replace(/\/$/, '') === root.pathname.replace(/\/$/, '')) continue;
     const folder = props.some((p) => local(p, 'collection').length);
@@ -186,8 +194,9 @@ export function parseGithub(text: string, base: string): Catalog {
 }
 
 /** Manual redirects keep credentials on their original origin, including native HTTP. */
-export async function requestBytes(address: string, options: { signal?: AbortSignal; credentials?: Credentials; method?: string; limit?: number; progress?: (bytes: number) => void } = {}) {
-  let url = secureUrl(address);
+export async function requestBytes(address: string, options: { signal?: AbortSignal; credentials?: Credentials; method?: string; limit?: number; progress?: (bytes: number) => void; webdav?: boolean } = {}) {
+  const validateUrl = options.webdav ? webdavUrl : secureUrl;
+  let url = validateUrl(address);
   const controller = new AbortController();
   const cancel = () => controller.abort();
   options.signal?.addEventListener('abort', cancel, { once: true });
@@ -211,12 +220,15 @@ export async function requestBytes(address: string, options: { signal?: AbortSig
       } catch (error) {
         if (!hasAndroidHttp() || controller.signal.aborted) throw error;
         // Some Android WebViews/system proxies work with Android TLS but fail in Rust HTTP.
-        response = await androidFetch(url, init, options.limit || 8 * 1024 * 1024);
+        response = await androidFetch(url, init, options.limit || 8 * 1024 * 1024, options.webdav);
       }
       if (response.type === 'opaqueredirect') throw new Error('浏览器无法读取此跳转，请使用安装版或填写跳转后的地址');
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location'); if (!location) throw new Error('下载跳转缺少地址');
-        await response.body?.cancel(); url = secureUrl(location, url); continue;
+        await response.body?.cancel();
+        const nextUrl = validateUrl(location, url);
+        if (new URL(url).protocol === 'https:' && new URL(nextUrl).protocol === 'http:') throw new Error('书库跳转从 HTTPS 降为 HTTP，已停止连接，请检查服务器地址。');
+        url = nextUrl; continue;
       }
       if (!response.ok) { await response.body?.cancel(); throw new Error(new URL(url).hostname === 'api.github.com' && (response.status === 403 || response.status === 429) ? 'GitHub 暂时限制了访问频率，请稍后重试，或使用仓库文件的 Raw 下载直链' : response.status === 401 || response.status === 403 ? '书库拒绝访问，请检查账号、应用密码或链接权限' : `请求失败（HTTP ${response.status}）`); }
       resetTimeout();
@@ -244,7 +256,7 @@ export async function requestBytes(address: string, options: { signal?: AbortSig
     if (controller.signal.aborted) throw new Error(options.signal?.aborted ? '已取消' : '请求超时，请重试');
     if (e instanceof TypeError) throw new Error('__TAURI_INTERNALS__' in window
       ? '书库请求失败，请检查此设备的网络、系统时间与 Android System WebView 是否为最新版本。'
-      : '无法连接书库。请检查网络和 HTTPS 地址；网页版还受服务器跨域设置限制。');
+      : options.webdav ? '无法连接 WebDAV。请检查地址、端口与网络；手机连接电脑服务需使用电脑的局域网 IP，网页版还受跨域设置限制。' : '无法连接书库。请检查网络和 HTTPS 地址；网页版还受服务器跨域设置限制。');
     if (typeof e === 'string' && /error sending request|dns|connect|certificate/i.test(e)) throw new Error('无法连接书库，请检查此设备的网络、代理与系统时间；国外书库可能需要可访问该站点的网络。');
     throw e;
   } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', cancel); }
@@ -260,12 +272,12 @@ export async function fetchCatalog(url: string, kind: LibraryKind, signal: Abort
     const catalogUrl = requestUrl.hostname === 'zh.wikisource.org' ? url : r.url;
     return {...parsePublicCatalog(decodeText(r.data.buffer as ArrayBuffer), catalogUrl), url:catalogUrl};
   }
-  const r = await requestBytes(kind === 'github' ? githubCatalogUrl(url) : url, { signal, credentials: kind === 'github' ? undefined : credentials, method: kind === 'webdav' ? 'PROPFIND' : 'GET' });
+  const r = await requestBytes(kind === 'github' ? githubCatalogUrl(url) : url, { signal, credentials: kind === 'github' ? undefined : credentials, method: kind === 'webdav' ? 'PROPFIND' : 'GET', webdav: kind === 'webdav' });
   const text = decodeText(r.data.buffer as ArrayBuffer);
   return { ... (kind === 'opds' ? parseOpds(text, r.url) : kind === 'web' ? parseWebList(text, r.url) : kind === 'github' ? parseGithub(text, r.url) : parseWebdav(text, r.url)), url: r.url };
 }
-export async function downloadBook(url: string, name: string, signal: AbortSignal, credentials?: Credentials, progress?: (bytes: number) => void): Promise<File> {
-  const r = await requestBytes(url, { signal, credentials, limit: MAX_DOWNLOAD_BYTES, progress });
+export async function downloadBook(url: string, name: string, signal: AbortSignal, credentials?: Credentials, progress?: (bytes: number) => void, webdav = false): Promise<File> {
+  const r = await requestBytes(url, { signal, credentials, limit: MAX_DOWNLOAD_BYTES, progress, webdav });
   const disposition = r.headers.get('content-disposition') || '';
   let serverName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] || /filename="([^"]+)"|filename=([^;]+)/i.exec(disposition)?.slice(1).find(Boolean) || '';
   try { serverName = decodeURIComponent(serverName); } catch { /* keep original */ }

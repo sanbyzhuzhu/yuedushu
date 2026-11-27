@@ -40,6 +40,8 @@ export function BookEditPanel({
   const [nodeId, setNodeId] = useState<string>(book.nodeId ?? '');
   const [cover, setCoverState] = useState<string | undefined>(book.cover);
   const [coverChanged, setCoverChanged] = useState(false);
+  const [coverProcessing, setCoverProcessing] = useState(false);
+  const [hidden, setHidden] = useState(book.hidden === true);
   const [coverLoading, setCoverLoading] = useState(!!book.hasCover && !book.cover);
   useEffect(() => { let alive = true; if (book.hasCover && !book.cover) void platform.getCover(book.id).then((value) => { if (alive) setCoverState(value); }).catch(() => { if (alive) setErr('封面暂时无法读取，原封面仍会保留'); }).finally(() => { if (alive) setCoverLoading(false); }); return () => { alive = false; }; }, [book.id, book.hasCover, book.cover]);
   const [err, setErr] = useState('');
@@ -48,17 +50,18 @@ export function BookEditPanel({
 
   const pickCover = async (f: File | undefined) => {
     if (!f) return;
+    setCoverProcessing(true); setErr('');
     try {
       setCoverState(await fileToCoverDataUrl(f)); setCoverChanged(true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : '封面处理失败');
       setTimeout(() => setErr(''), 3000);
     }
-    if (fileRef.current) fileRef.current.value = '';
+    finally { setCoverProcessing(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
   const save = async () => {
-    if (saving) return;
+    if (saving || coverProcessing || coverLoading) return;
     if (!title.trim()) { setErr('请填写书名'); return; }
     setSaving(true); setErr('');
     try {
@@ -67,6 +70,7 @@ export function BookEditPanel({
       author: author.trim(),
       ...(coverChanged ? { cover: cover ?? null } : {}),
       nodeId: nodeId || null,
+      hidden,
     });
     onClose();
     } catch { setErr('保存失败，修改仍保留在这里。'); }
@@ -91,9 +95,9 @@ export function BookEditPanel({
               )}
             </div>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => void pickCover(e.target.files?.[0])} />
-            <button disabled={coverLoading} onClick={() => fileRef.current?.click()}>更换封面</button>
+            <button disabled={saving || coverLoading || coverProcessing} onClick={() => fileRef.current?.click()}>{coverProcessing ? '正在处理封面…' : '更换封面'}</button>
             {cover ? (
-              <button className="link-btn" disabled={coverLoading} onClick={() => { setCoverState(undefined); setCoverChanged(true); }}>
+              <button className="link-btn" disabled={saving || coverLoading || coverProcessing} onClick={() => { setCoverState(undefined); setCoverChanged(true); }}>
                 清除封面
               </button>
             ) : null}
@@ -119,11 +123,12 @@ export function BookEditPanel({
                 ))}
               </select>
             </label>
+            <label className="set-group"><span><input type="checkbox" checked={hidden} disabled={saving} onChange={e => setHidden(e.target.checked)} />移入隐藏分组</span><small className="set-hint">隐藏后不在首页和普通分类显示，可在“全部分类 → 隐藏”中查看。</small></label>
             {err ? <p className="set-hint">{err}</p> : null}
           </div>
         </div>
 
-        <button disabled={saving} className="primary edit-save" onClick={() => void save()}>
+        <button disabled={saving || coverProcessing || coverLoading} className="primary edit-save" onClick={() => void save()}>
           {saving ? '正在保存…' : '保存书籍信息'}
         </button>
       </div>

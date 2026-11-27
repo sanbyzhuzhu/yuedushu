@@ -30,12 +30,21 @@ class NativeHttpBridge(private val webView: WebView) {
 
   @JavascriptInterface
   fun fetch(id: String, address: String, method: String, headers: String, body: String, limit: Int) {
+    request(id, address, method, headers, body, limit, false)
+  }
+
+  @JavascriptInterface
+  fun fetchWebdav(id: String, address: String, method: String, headers: String, body: String, limit: Int) {
+    request(id, address, method, headers, body, limit, true)
+  }
+
+  private fun request(id: String, address: String, method: String, headers: String, body: String, limit: Int, webdav: Boolean) {
     val request = Request()
     requests[id] = request
     workers.execute {
       try {
         val url = URL(address)
-        require(url.protocol == "https" && url.userInfo == null) { "只支持 HTTPS 地址" }
+        require((url.protocol == "https" || webdav && url.protocol == "http") && url.userInfo == null) { "不支持的地址协议或内嵌账号" }
         require(method == "GET" || method == "PROPFIND") { "不支持的请求方式" }
         require(limit in 1..268435456) { "无效的文件大小限制" }
         val connection = url.openConnection() as HttpURLConnection

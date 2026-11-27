@@ -1,11 +1,11 @@
-type NativeHttp = { fetch(id: string, url: string, method: string, headers: string, body: string, limit: number): void; cancel(id: string): void };
+type NativeHttp = { fetch(id: string, url: string, method: string, headers: string, body: string, limit: number): void; fetchWebdav?(id: string, url: string, method: string, headers: string, body: string, limit: number): void; cancel(id: string): void };
 type HttpWindow = Window & { ReadingTreeNativeHttp?: NativeHttp; readingTreeHttpEvent?: (id: string, kind: string, payload: string) => void };
 type Pending = { status: number; headers: Record<string, string>; chunks: Uint8Array[]; finish: (error?: Error) => void };
 const requests = new Map<string, Pending>();
 
 export function hasAndroidHttp(): boolean { return !!(window as HttpWindow).ReadingTreeNativeHttp; }
 
-export function androidFetch(url: string, init: { method: string; headers: Record<string, string>; signal: AbortSignal; body?: string }, limit: number): Promise<Response> {
+export function androidFetch(url: string, init: { method: string; headers: Record<string, string>; signal: AbortSignal; body?: string }, limit: number, webdav = false): Promise<Response> {
   const host = window as HttpWindow;
   const native = host.ReadingTreeNativeHttp!;
   host.readingTreeHttpEvent = (id, kind, payload) => {
@@ -34,7 +34,12 @@ export function androidFetch(url: string, init: { method: string; headers: Recor
     requests.set(id, request);
     if (init.signal.aborted) { request.finish(new Error('已取消')); return; }
     init.signal.addEventListener('abort', abort, { once: true });
-    try { native.fetch(id, url, init.method, JSON.stringify(init.headers), init.body || '', limit); }
+    try {
+      if (webdav && new URL(url).protocol === 'http:') {
+        if (!native.fetchWebdav) throw new Error('此安装版本不支持 HTTP WebDAV，请升级应用。');
+        native.fetchWebdav(id, url, init.method, JSON.stringify(init.headers), init.body || '', limit);
+      } else native.fetch(id, url, init.method, JSON.stringify(init.headers), init.body || '', limit);
+    }
     catch (e) { request.finish(e instanceof Error ? e : new Error('无法启动安卓网络请求')); }
   });
 }

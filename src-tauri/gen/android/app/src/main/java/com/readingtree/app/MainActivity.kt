@@ -116,6 +116,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(nativeImports, "ReadingTreeNativeImports")
     webView.addJavascriptInterface(NativeFileBridge(this, webView), "ReadingTreeNativeFiles")
     webView.addJavascriptInterface(NativeHttpBridge(webView), "ReadingTreeNativeHttp")
+    webView.addJavascriptInterface(NativeUpdateBridge(this), "ReadingTreeNativeUpdate")
     nativeTts = NativeTts(webView).also {
       webView.addJavascriptInterface(it, "ReadingTreeNativeTts")
     }

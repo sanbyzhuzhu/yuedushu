@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { APP_VERSION, DEFAULT_UPDATE_SOURCE, compareVersions, openUpdateDownload, updateTarget } from '../engine/appUpdate';
 import { useAppUpdate } from '../store/appUpdate';
+import { canDownloadInApp, useUpdateDownload } from '../store/updateDownload';
 
 export function UpdatePanel() {
   const state = useAppUpdate();
+  const transfer = useUpdateDownload();
+  const [inAppConfirm,setInAppConfirm] = useState<'download'|'install'|null>(null);
+  useEffect(() => { useUpdateDownload.getState().refresh(); }, []);
   const [address, setAddress] = useState(state.source);
   const [message, setMessage] = useState('');
   const [confirm, setConfirm] = useState<{ version: string; url: string } | null>(null);
@@ -13,6 +17,8 @@ export function UpdatePanel() {
   const newer = !!release && compareVersions(release.version, APP_VERSION) > 0;
   const ignored = newer && state.ignored === release.version;
   const download = target === 'unsupported' ? undefined : release?.downloads[target];
+  const inApp = !!release && canDownloadInApp(release);
+  const active = transfer.status === 'downloading' || transfer.status === 'installing';
   const saveSource = () => {
     try {
       state.configure(address, state.autoCheck);
@@ -33,7 +39,15 @@ export function UpdatePanel() {
       {release.publishedAt ? <p className="set-hint">发布时间：{release.publishedAt}</p> : null}
       <p className="update-notes">{release.notes || '本次更新未填写说明。'}</p>
       {download ? <>
-        <p className="set-hint">{target === 'android' ? '安卓 APK' : 'Windows 64 位安装包'} · 下载后由系统确认安装，建议覆盖升级。</p>
+        <p className="set-hint">{target === 'android' ? '安卓 APK · 可在应用内下载，安装需系统确认。' : 'Windows 64 位安装包 · 可在应用内下载，确认后后台安装并重新打开。'}</p>
+        {inApp || transfer.version ? <section aria-label="应用内更新">
+          {transfer.status === 'downloading' ? <div role="status"><p>正在后台下载 v{transfer.version} · {(transfer.bytes / 1048576).toFixed(1)} MB{transfer.total > 0 ? ` / ${(transfer.total / 1048576).toFixed(1)} MB` : ''}，可关闭此页继续阅读。</p>{transfer.total > 0 ? <progress aria-label="更新下载进度" value={transfer.bytes} max={transfer.total} /> : null}<button onClick={() => void transfer.cancel()}>取消下载</button></div>
+          : transfer.status === 'installing' ? <p role="status">正在启动安装…</p>
+          : transfer.status === 'ready' ? <><p>v{transfer.version} 已下载并校验完成。</p><button className="primary" onClick={() => setInAppConfirm('install')}>安装更新</button><button onClick={() => void transfer.cancel()}>移除安装包</button></>
+          : inApp ? <button className="primary" onClick={() => { setInAppConfirm('download'); setConfirm(null); }}>应用内下载</button> : null}
+          {inAppConfirm ? <div className="update-confirm" aria-label="确认应用内更新"><p>{inAppConfirm === 'download' ? `确认在后台下载 v${release.version}？下载完成后由你决定何时安装。` : target === 'android' ? '确认打开系统安装程序？安卓安装需要系统授权和确认。' : `确认安装 v${transfer.version}？阅读树将退出，在后台覆盖安装并重新打开。`}</p><button className="primary" disabled={active} onClick={() => { const action = inAppConfirm; setInAppConfirm(null); void (action === 'download' ? transfer.start(release,state.source) : transfer.install()); }}>{inAppConfirm === 'download' ? '确认开始下载' : target === 'android' ? '确认打开系统安装' : '确认安装并重启'}</button><button onClick={() => setInAppConfirm(null)}>暂不更新</button></div> : null}
+          {transfer.message ? <p role="status" className="set-hint">{transfer.message}</p> : null}
+        </section> : null}
         {confirm ? <div className="update-confirm" aria-label="确认更新">
           <p>确认打开 v{confirm.version} 的更新下载地址？</p>
           <p className="update-address">{confirm.url}</p>
@@ -45,7 +59,7 @@ export function UpdatePanel() {
             }).catch(e => setMessage(e instanceof Error ? e.message : '打开下载失败')).finally(() => setOpening(false));
           }}>{opening ? '正在打开…' : '确认打开下载'}</button>
           <button disabled={opening} onClick={() => setConfirm(null)}>暂不更新</button>
-        </div> : <button onClick={() => { setConfirm({ version: release.version, url: download }); setMessage(''); }}>下载更新</button>}
+        </div> : <button disabled={active} onClick={() => { setConfirm({ version: release.version, url: download }); setInAppConfirm(null); setMessage(''); }}>{inApp ? '浏览器下载（备用）' : '下载更新'}</button>}
       </> : <p className="set-hint">本设备暂无对应安装包，当前版本可继续使用。</p>}
       {ignored ? <button onClick={() => state.unignore()}>恢复此版本提示</button>
         : <button onClick={() => { state.ignore(); setConfirm(null); setMessage('已忽略此版本，后续新版本仍会提示'); }}>忽略此版本</button>}

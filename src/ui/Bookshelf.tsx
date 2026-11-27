@@ -23,6 +23,7 @@ import { CategoryPanel } from './CategoryPanel';
 import { useSync } from '../sync/sync';
 const NetworkLibraryPanel = lazy(() => import('./NetworkLibraryPanel').then((m) => ({ default: m.NetworkLibraryPanel })));
 const NotesManagerPanel = lazy(() => import('./NotesManagerPanel').then((m) => ({ default: m.NotesManagerPanel })));
+const WifiTransferPanel = lazy(() => import('./WifiTransferPanel').then(m => ({default:m.WifiTransferPanel})));
 
 type SortKey = 'recent' | 'added' | 'title' | 'progress';
 type FilterKey = 'all' | 'unread' | 'reading' | 'done';
@@ -61,18 +62,24 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
   const libraryReady = useLibrary((st) => st.ready);
   const libraryError = useLibrary((st) => st.error);
   const nodes = useLibrary((st) => st.nodes);
+  const visibleBooks = useMemo(() => books.filter(b => !b.hidden), [books]);
+  const hiddenCount = books.length - visibleBooks.length;
   const importFiles = useLibrary((st) => st.importFiles);
   const importSample = useLibrary((st) => st.importSample);
   const removeBook = useLibrary((st) => st.removeBook);
+  const pendingImport = useLibrary(st => st.pendingImport);
+  const importRevision = useLibrary(st => st.importRevision);
+  const acknowledgeImport = useLibrary(st => st.acknowledgeImport);
 
   const [selNode, setSelNode] = useState<string | 'all'>('all');
   const [view, setView] = useState<'tree' | 'grid' | 'list'>('grid');
   const [q, setQ] = useState('');
   const query = useDeferredValue(q);
   const collator = useMemo(() => new Intl.Collator('zh-Hans-CN'), []);
-  const nodeCounts = useMemo(() => { const counts = new Map<string | null, number>(); for (const b of books) counts.set(b.nodeId, (counts.get(b.nodeId) ?? 0) + 1); return counts; }, [books]);
+  const nodeCounts = useMemo(() => { const counts = new Map<string | null, number>(); for (const b of visibleBooks) counts.set(b.nodeId, (counts.get(b.nodeId) ?? 0) + 1); return counts; }, [visibleBooks]);
   const [progMap, setProgMap] = useState<Record<string, Progress>>({});
   const [sort, setSort] = useState<SortKey>('recent');
+  const [importPriority,setImportPriority] = useState<{ids:string[];sort:SortKey}>({ids:[],sort:'recent'});
   const [viewReady, setViewReady] = useState(false);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [editBook, setEditBook] = useState<BookMeta | null>(null);
@@ -87,6 +94,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
   const [syncOpen, setSyncOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [networkOpen, setNetworkOpen] = useState(false);
+  const [wifiOpen,setWifiOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [librarySearchOpen, setLibrarySearchOpen] = useState(false);
   const [recycleOpen, setRecycleOpen] = useState(false);
@@ -166,9 +174,17 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
     if (viewReady) void platform.kvSet('shelfView', { sort, filter, view });
   }, [sort, filter, view, viewReady]);
 
+  useEffect(() => {
+    if (!pendingImport || !viewReady) return;
+    setSelNode('all');setQ('');setFilter('all');
+    setImportPriority({ids:pendingImport.ids,sort});
+    mainRef.current?.scrollTo({top:0});
+    acknowledgeImport(pendingImport.revision);
+  }, [pendingImport,viewReady,sort,acknowledgeImport]);
+
   const filtered = useMemo(() => {
     const kw = query.trim().toLowerCase();
-    let list = selNode === 'all' ? [...books] : books.filter((b) => selNode === '__unfiled' ? !b.nodeId : b.nodeId === selNode);
+    let list = selNode === '__hidden' ? books.filter(b => b.hidden) : visibleBooks.filter((b) => selNode === 'all' || (selNode === '__unfiled' ? !b.nodeId : b.nodeId === selNode));
     if (kw) {
       list = list.filter(
         (b) => b.title.toLowerCase().includes(kw) || b.author.toLowerCase().includes(kw),
@@ -188,11 +204,15 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
     else if (sort === 'added') list.sort((a, b) => b.addedAt - a.addedAt);
     else if (sort === 'title') list.sort((a, b) => collator.compare(a.title, b.title));
     else list.sort((a, b) => (progMap[b.id]?.pct ?? 0) - (progMap[a.id]?.pct ?? 0));
+    if (selNode === 'all' && !kw && filter === 'all' && sort === importPriority.sort && importPriority.ids.length) {
+      const byId = new Map(list.map(book => [book.id,book])), recentIds = new Set(importPriority.ids);
+      list = [...importPriority.ids.map(id => byId.get(id)).filter((book):book is BookMeta => !!book),...list.filter(book => !recentIds.has(book.id))];
+    }
     return list;
-  }, [books, selNode, query, filter, sort, progMap, collator]);
-  const bookPage = useBookPage(filtered, JSON.stringify([selNode, query, filter, sort, view]), 60, true);
+  }, [books, visibleBooks, selNode, query, filter, sort, progMap, collator,importPriority]);
+  const bookPage = useBookPage(filtered, JSON.stringify([selNode, query, filter, sort, view,importRevision]), 60, true);
 
-  const recent = useMemo(() => books.filter((b) => progMap[b.id]?.pct > 0 && !(b.completed ?? progMap[b.id]?.pct >= .99)).sort((a, b) => progMap[b.id].updatedAt - progMap[a.id].updatedAt)[0], [books, progMap]);
+  const recent = useMemo(() => visibleBooks.filter((b) => progMap[b.id]?.pct > 0 && !(b.completed ?? progMap[b.id]?.pct >= .99)).sort((a, b) => progMap[b.id].updatedAt - progMap[a.id].updatedAt)[0], [visibleBooks, progMap]);
 
   const pctMap = useMemo(() => {
     const m: Record<string, number> = {};
@@ -236,7 +256,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
   };
 
   useEffect(() => {
-    if (selNode !== 'all' && selNode !== '__unfiled' && !nodes.some((n) => n.id === selNode)) setSelNode('all');
+    if (selNode !== 'all' && selNode !== '__unfiled' && selNode !== '__hidden' && !nodes.some((n) => n.id === selNode)) setSelNode('all');
   }, [nodes, selNode]);
 
   const renderBookActions = (b: BookMeta) => (
@@ -251,6 +271,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
         编辑信息
       </button>
       <button onClick={() => { setMenuId(null); setCategories({ ids: [b.id] }); }}>移入分类</button>
+      <button onClick={() => void useLibrary.getState().setBooksHidden([b.id], !b.hidden).then(() => setMenuId(null)).catch(() => setErr('隐藏状态保存失败，请重试'))}>{b.hidden ? '移出隐藏分组' : '移入隐藏分组'}</button>
       <button onClick={() => void useLibrary.getState().saveBookInfo(b.id, { completed: !(b.completed ?? (progMap[b.id]?.pct ?? 0) >= .99) }).then(() => setMenuId(null)).catch(() => setErr('阅读状态保存失败，请重试'))}>{(b.completed ?? (progMap[b.id]?.pct ?? 0) >= .99) ? '标记未读完' : '标记已读完'}</button>
       <button
         className="danger"
@@ -284,9 +305,10 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
             className={`side-item ${selNode === 'all' ? 'active' : ''}`}
             onClick={() => setSelNode('all')}
           >
-            全部藏书<span className="count">{books.length}</span>
+            全部藏书<span className="count">{visibleBooks.length}</span>
           </button>
           <button className={`side-item ${selNode === '__unfiled' ? 'active' : ''}`} onClick={() => setSelNode('__unfiled')}>未分类<span className="count">{nodeCounts.get(null) ?? 0}</span></button>
+          <button className={`side-item ${selNode === '__hidden' ? 'active' : ''}`} onClick={() => setSelNode('__hidden')}>隐藏<span className="count">{hiddenCount}</span></button>
           {nodes.map((n) => (
             <div key={n.id} className={`side-row ${selNode === n.id ? 'active' : ''}`}>
               <button className="side-item" style={{ paddingLeft: 14 + nodeDepth(n) * 14 }} onClick={() => setSelNode(n.id)}>
@@ -305,6 +327,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
       <main className="shelf-main" ref={mainRef}>
         {notesOpen ? <Suspense fallback={<Panel label="笔记管理" onClose={() => setNotesOpen(false)}><p className="panel-intro">正在打开笔记…</p></Panel>}><NotesManagerPanel onClose={() => setNotesOpen(false)} /></Suspense> : null}
         {networkOpen ? <Suspense fallback={<Panel label="网络书库" onClose={() => setNetworkOpen(false)}><p className="panel-intro">正在打开书库…</p></Panel>}><NetworkLibraryPanel onClose={() => setNetworkOpen(false)} /></Suspense> : null}
+        {wifiOpen ? <Suspense fallback={<Panel label="Wi-Fi 传书" onClose={() => setWifiOpen(false)}><p className="panel-intro">正在打开传书…</p></Panel>}><WifiTransferPanel onClose={()=>setWifiOpen(false)}/></Suspense> : null}
         <header className="shelf-head">
           <div className="brand"><TreeLogo /><div><h1>阅读树</h1><p>一卷在手，静读有时</p></div></div>
           <div className="head-actions">
@@ -324,7 +347,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
         {books.length > 0 ? <>
           <div className="m-bar">
             <div className="m-chips" aria-label="书籍分类">
-              <button className={'m-chip ' + (selNode === 'all' ? 'active' : '')} aria-pressed={selNode === 'all'} onClick={() => setSelNode('all')}>全部 {books.length}</button>
+              <button className={'m-chip ' + (selNode === 'all' ? 'active' : '')} aria-pressed={selNode === 'all'} onClick={() => setSelNode('all')}>全部 {visibleBooks.length}</button>
               <button className={'m-chip ' + (selNode === '__unfiled' ? 'active' : '')} aria-pressed={selNode === '__unfiled'} onClick={() => setSelNode('__unfiled')}>未分类 {nodeCounts.get(null) ?? 0}</button>
               {nodes.map((n) => <button key={n.id} className={'m-chip ' + (selNode === n.id ? 'active' : '')} aria-pressed={selNode === n.id} onClick={() => setSelNode(n.id)}>{n.name} {nodeCounts.get(n.id) ?? 0}</button>)}
             </div>
@@ -334,7 +357,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
             <div className="f-chips">{(['all', 'unread', 'reading', 'done'] as FilterKey[]).map((f) => <button key={f} className={'f-chip ' + (filter === f ? 'active' : '')} aria-pressed={filter === f} onClick={() => setFilter(f)}>{FILTER_LABEL[f]}</button>)}</div>
             <div className="shelf-controls"><button onClick={() => setShelfPanel('layout')}>排列</button><button onClick={() => setShelfPanel('manage')}>管理</button></div>
           </div>
-          <div className="shelf-summary"><span className="shelf-location">{selNode === 'all' ? '全部藏书' : selNode === '__unfiled' ? '未分类' : nodes.find((n) => n.id === selNode)?.name} · {filtered.length} 本</span>{view !== 'tree' ? <BookPages {...bookPage} go={changePage} compact /> : null}</div>
+          <div className="shelf-summary"><span className="shelf-location">{selNode === 'all' ? '全部藏书' : selNode === '__unfiled' ? '未分类' : selNode === '__hidden' ? '隐藏' : nodes.find((n) => n.id === selNode)?.name} · {filtered.length} 本</span>{view !== 'tree' ? <BookPages {...bookPage} go={changePage} compact /> : null}</div>
         </> : null}
         {importProgress ? <div className="import-progress" role="status"><span>{importProgress}</span>{importing ? <button onClick={() => importWork.current?.abort()}>停止后续导入</button> : <button onClick={() => setImportProgress('')}>收起</button>}</div> : null}
         {!libraryReady ? <div className="empty"><p className="empty-line">{libraryError ? '书库暂时无法打开' : '正在打开书库…'}</p><p className="empty-hint">{libraryError || '首次整理大量封面可能需要一些时间，请保持应用打开。'}</p>{libraryError ? <button onClick={() => void useLibrary.getState().init()}>重新读取</button> : null}</div> : filtered.length === 0 && books.length > 0 ? (
@@ -411,6 +434,7 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="drawer-head"><h3>{panelTitle[shelfPanel]}</h3><button onClick={() => setShelfPanel(null)}>关闭</button></div>
           {shelfPanel === 'more' ? <div className="shelf-menu-list">
             <button onClick={() => panelAction(() => setNetworkOpen(true))}>网络书库<span>发现与下载好书</span></button>
+            <button onClick={() => panelAction(() => setWifiOpen(true))}>Wi-Fi 传书<span>同一局域网，浏览器上传入架</span></button>
             <button onClick={() => panelAction(() => setNotesOpen(true))}>笔记管理<span>集中阅读划线与批注</span></button>
             <button onClick={() => panelAction(() => setLibrarySearchOpen(true))}>跨书全文检索<span>在本地藏书中查找字句</span></button>
             <button onClick={() => panelAction(() => setStatsOpen(true))}>阅读统计<span>看看读过的时光</span></button>
@@ -432,9 +456,10 @@ export function Bookshelf({ onOpen }: { onOpen: (id: string) => void }) {
           {shelfPanel === 'categories' ? <>
             <input className="field category-find" aria-label="查找分类" placeholder="查找分类" value={categoryQuery} onChange={(e) => setCategoryQuery(e.target.value)} />
             <div className="category-browser">
-              {!categoryQuery.trim() ? <><button aria-pressed={selNode === 'all'} onClick={() => chooseCategory('all')}>全部藏书<span>{books.length}</span></button><button aria-pressed={selNode === '__unfiled'} onClick={() => chooseCategory('__unfiled')}>未分类<span>{nodeCounts.get(null) ?? 0}</span></button></> : null}
+              {!categoryQuery.trim() ? <><button aria-pressed={selNode === 'all'} onClick={() => chooseCategory('all')}>全部藏书<span>{visibleBooks.length}</span></button><button aria-pressed={selNode === '__unfiled'} onClick={() => chooseCategory('__unfiled')}>未分类<span>{nodeCounts.get(null) ?? 0}</span></button></> : null}
+              {(!categoryQuery.trim() || '隐藏'.includes(categoryQuery.trim())) ? <button aria-pressed={selNode === '__hidden'} onClick={() => chooseCategory('__hidden')}>隐藏<span>{hiddenCount}</span></button> : null}
               {nodes.filter((n) => n.name.toLowerCase().includes(categoryQuery.trim().toLowerCase())).map((n) => <button key={n.id} aria-pressed={selNode === n.id} onClick={() => chooseCategory(n.id)}><span className="category-browser-name">{n.name}<small>{nodes.find((p) => p.id === n.parentId)?.name}</small></span><span>{nodeCounts.get(n.id) ?? 0}</span></button>)}
-              {categoryQuery.trim() && !nodes.some((n) => n.name.toLowerCase().includes(categoryQuery.trim().toLowerCase())) ? <p className="panel-empty">没有找到这个分类</p> : null}
+              {categoryQuery.trim() && !'隐藏'.includes(categoryQuery.trim()) && !nodes.some((n) => n.name.toLowerCase().includes(categoryQuery.trim().toLowerCase())) ? <p className="panel-empty">没有找到这个分类</p> : null}
             </div><button className="category-manage-link" onClick={() => panelAction(onAddNode)}>分类管理 →</button>
           </> : null}
           {shelfPanel === 'about' ? <div className="shelf-about"><TreeLogo /><h2>阅读树</h2><p>一卷在手，静读有时</p><p aria-label={'版本 ' + appVersion}>v{appVersion} · 清简书架版</p><p>阅读树是一款清简、古典的个人阅读与藏书软件。将书留在本地，离线也能静心阅读；横排与竖排自由切换，繁简转换随心选择，让古籍与新书各得其宜。</p><p>每本书都可独立设置阅读版式，自定义字体、字号、行距与留白。划线、批注与书签留住所思所感，让阅读更贴近自己的习惯。</p><p>支持上万本书籍的书架管理，以分类与搜索整理个人藏书；接入网络书库，发现经典与公版好书。可通过坚果云、InfiniCLOUD、Nextcloud 等任意标准 WebDAV 服务同步书籍、笔记与阅读进度，支持多个云盘同时同步、互为备份，在电脑与安卓设备间接续阅读。</p><p>长按正文选择文字，拖动选区端点划线；到本页末行后继续拖动，才会翻到下一页。</p><p>开发者：朱振坚（公号小二菜园）</p><p>支持 {SUPPORTED_FORMATS}。</p><p>支持未加密电子书。Word 请使用 DOCX（不支持旧 DOC）；ZIP 仅支持 FB2.ZIP。PDF 可原版阅读，文字版可重排；OFD 支持文字及 PNG/JPEG 图片重排，暂不含 OCR、签章与矢量图。</p><button onClick={() => setShelfPanel('more')}>返回更多</button></div> : null}

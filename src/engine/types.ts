@@ -25,6 +25,10 @@ export interface BookMeta {
   cover?: string;
   /** Local lightweight metadata: cover bytes are stored separately. */
   hasCover?: boolean;
+  /** Separate cover revision preserves replacements and explicit removals across sync. */
+  coverUpdatedAt?: number;
+  /** Hidden books remain local and readable only through the hidden shelf. */
+  hidden?: boolean;
   updatedAt?: number;
   /** Explicit completion overrides the progress-derived status without moving the reading position. */
   completed?: boolean;

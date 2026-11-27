@@ -26,3 +26,4 @@
 # V0.3.6：同理，屏蔽系统长按菜单的桥（经 addJavascriptInterface 反射调用）
 -keep class com.readingtree.app.NativeMenuBridge { *; }
 -keep class com.readingtree.app.NativeImportBridge { *; }
+-keep class com.readingtree.app.NativeUpdateBridge { *; }

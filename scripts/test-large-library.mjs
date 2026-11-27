@@ -98,8 +98,9 @@ try {
     const reject = async (fn, label) => { try { await fn(); } catch { check(true, label); return; } throw new Error(label); };
     let bookUpdates = 0; const unsubscribe = useLibrary.subscribe((a, b) => { if (a.books !== b.books) bookUpdates++; });
     const files = Array.from({ length: 45 }, (_, i) => new File(['批量导入内容'], `批量${i}.txt`));
+    const importStarted = performance.now();
     const batch = await useLibrary.getState().importFiles(files, () => {}); unsubscribe();
-    check(batch.imported === 45 && bookUpdates === 3, '45-book import publishes three batches rather than 45 full shelf refreshes');
+    check(batch.imported === 45 && bookUpdates >= 4 && bookUpdates <= 4 + Math.ceil((performance.now()-importStarted)/500), '45-book import reveals its first book immediately and keeps remaining updates batched');
     const abort = new AbortController(); const cancelled = await useLibrary.getState().importFiles(files, () => abort.abort(), abort.signal);
     check(cancelled.imported === 1, 'stopping import keeps the committed book and skips remaining files');
     const meta = { id: 'atomic-failure', title: '不应出现', author: '', format: 'pdf', size: 1, addedAt: 1, nodeId: null, cover: 'data:image/png;base64,AA==' };
@@ -146,7 +147,7 @@ try {
   results.forEach((label) => ok(true, label));
   const uploaded = [];
   await page.route('https://sync.test/**', (route) => { const req = route.request(); if (req.method() === 'PUT') { uploaded.push({ url: req.url(), body: req.postData() }); return route.fulfill({ status: 201, body: '' }); } return route.fulfill({ status: req.method() === 'MKCOL' ? 201 : 404, body: '' }); });
-  await page.evaluate(async () => { const { useSync } = await import('/src/sync/sync.ts'); await useSync.getState().save({ enabled: true, url: 'https://sync.test/dav', username: 'fixture', password: 'fixture', basePath: 'books', backupBooks: true }); await useSync.getState().syncNow(); if (useSync.getState().status !== 'ok') throw new Error(useSync.getState().message); });
+  await page.evaluate(async () => { const { useSync } = await import('/src/sync/sync.ts'); await useSync.getState().save({ enabled: true, accounts:[{id:'large-fixture',enabled:true,url: 'https://sync.test/dav', username: 'fixture', password: 'fixture', basePath: 'books', backupBooks: true,rememberPassword:false}] }); await Promise.race([useSync.getState().syncNow(),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Fixture sync timed out')),30000))]); if (useSync.getState().status !== 'ok') throw new Error(useSync.getState().message); });
   const uploadedBook = uploaded.find((r) => /books\/.*\.json$/.test(r.url) && !r.url.endsWith('manifest.json'));
   ok(!!uploadedBook && JSON.parse(uploadedBook.body).meta.cover?.startsWith('data:image/'), 'cloud book payload hydrates cover on demand before upload');
   ok(await page.evaluate(() => window.__rtLib.getState().books.every((b) => !b.cover)), 'sync keeps resident shelf metadata free of cover bytes');

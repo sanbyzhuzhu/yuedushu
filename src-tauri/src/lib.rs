@@ -1,3 +1,6 @@
+mod app_updater;
+mod wifi_transfer;
+
 #[cfg(desktop)]
 mod desktop {
   use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Manager};
@@ -41,9 +44,20 @@ mod desktop {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![exit_desktop, open_book_website, read_import_file, open_update_url])
+    .invoke_handler(tauri::generate_handler![exit_desktop, open_book_website, read_import_file, open_update_url, app_updater::download_app_update, app_updater::cancel_app_update, app_updater::install_app_update, wifi_transfer::wifi_state, wifi_transfer::wifi_start, wifi_transfer::wifi_stop, wifi_transfer::wifi_take, wifi_transfer::wifi_read_chunk, wifi_transfer::wifi_complete])
     .plugin(tauri_plugin_http::init())
     .setup(|app| {
+      {
+        use tauri::Manager;
+        app.manage(wifi_transfer::WifiState::default());
+      }
+      #[cfg(desktop)]
+      app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+      #[cfg(windows)]
+      {
+        use tauri::Manager;
+        app.manage(app_updater::UpdateState::default());
+      }
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
