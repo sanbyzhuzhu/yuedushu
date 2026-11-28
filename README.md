@@ -1,6 +1,8 @@
 # 阅读树（Reading Tree）
 
 极简 · 古典 · 静读。本地优先的中文电子书阅读器，支持 Android 与 Windows。
+<img width="1080" height="1440" alt="阅读树社群海报" src="https://github.com/user-attachments/assets/444ea9cb-1c16-457e-b677-9864466d344d" />
+
 
 ## 当前版本：0.4.10 · Wi-Fi 传书
 
