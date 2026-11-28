@@ -1,6 +1,7 @@
 import type { Catalog, CatalogEntry } from './networkLibrary';
 import { MAX_DOWNLOAD_BYTES, requestBytes, secureUrl } from './networkLibrary';
 import { escapeHtml } from './importExtra';
+import { parsePoetryCollection, poemHtml, MAX_POETRY_MERGE } from './poetryCollection';
 
 export const CLASSICS_PRESETS = [
   { title: '中文维基文库', url: 'https://zh.wikisource.org/', detail: '经典原文 · 选择篇章入架' },
@@ -123,17 +124,12 @@ export function wikiCategory(title: string) {
   return WIKI+'w/api.php?action=query&list=categorymembers&format=json&cmlimit=50&cmtitle='+encodeURIComponent(title);
 }
 
-export function publicTextHtml(text: string, item: CatalogEntry): {title:string;html:string} {
-  let title = item.title, html = '';
+export function publicTextHtml(text: string, item: CatalogEntry): {title:string;html:string;pieces?:number} {
+  let title = item.title, html = '', pieces: number | undefined;
   if (item.textPage==='poetry') {
-    const data = JSON.parse(text); const poems = Array.isArray(data) ? data : Array.isArray(data.chapters) ? data.chapters : [data];
-    if (poems.length>5000) throw new Error('选集超过 5000 篇，请选择更小的文件');
-    html = poems.map((p: Record<string, unknown>)=>{
-      const paragraphs = p.paragraphs || p.content || p.contents;
-      const lines = typeof paragraphs==='string' ? paragraphs.split('\n') : Array.isArray(paragraphs) ? paragraphs : [];
-      if (!lines.length || lines.some(l=>typeof l!=='string')) return '';
-      return '<h2>'+escapeHtml(String(p.title||p.rhythmic||p.chapter||p.section||'诗篇'))+'</h2>'+(p.author?'<p>'+escapeHtml(String(p.author))+'</p>':'')+lines.map(l=>'<p>'+escapeHtml(l)+'</p>').join('');
-    }).join('');
+    const data = parsePoetryCollection(text); pieces = data.poems.length;
+    if (pieces > MAX_POETRY_MERGE) throw new Error('选集超过 10000 篇，请分批选择诗词或下载原始 JSON');
+    html = data.poems.map(poemHtml).join('');
   } else if (item.textPage==='kanripo') {
     title = /^#\+TITLE:\s*(.+)$/m.exec(text)?.[1]?.trim() || title;
     html = text.replace(/^#.*$/gm,'').replace(/<pb:[^>]*>/g,'').replace(/¶/g,'').split(/\n\s*\n/).filter(x=>x.trim()).map(x=>/^\*+\s/.test(x)?'<h2>'+escapeHtml(x.replace(/^\*+\s*/,''))+'</h2>':'<p>'+escapeHtml(x.trim().replace(/\n/g,''))+'</p>').join('');
@@ -148,17 +144,19 @@ export function publicTextHtml(text: string, item: CatalogEntry): {title:string;
     if (!html && nodes.length) html=nodes.map(n=>'<p>'+escapeHtml(n.textContent?.trim()||'')+'</p>').join('');
   }
   if (!html.replace(/<[^>]*>/g,'').trim()) throw new Error('未找到可读正文，请在原站查看此资料。');
-  return {title,html};
+  return {title,html,pieces};
 }
 export async function downloadPublicText(book: CatalogEntry, chapters: CatalogEntry[], signal: AbortSignal, progress?: (message:string)=>void): Promise<File> {
   if (!chapters.length || chapters.length>10000) throw new Error('每次请选择 1–10000 篇');
-  const parts: string[] = []; let bytes=0, outputBytes=0, title=book.title;
+  const parts: string[] = []; let bytes=0, outputBytes=0, poemCount=0, title=book.title;
   for (let i=0;i<chapters.length;i++) {
     signal.throwIfAborted(); const item=chapters[i]; progress?.('正在下载 '+(i+1)+' / '+chapters.length+'：'+item.title);
     const target=new URL(item.url);
     if (!item.textPage || !['zh.wikisource.org','ctext.org','raw.githubusercontent.com'].includes(target.hostname)) throw new Error('不支持的正文来源');
-    const r=await requestBytes(item.url,{signal});bytes+=r.data.length;if(bytes>MAX_DOWNLOAD_BYTES)throw new Error('所选正文超过 256 MiB，请减少篇数');
+    const r=await requestBytes(item.url,{signal,limit:item.textPage==='poetry'?50*1024*1024:8*1024*1024});bytes+=r.data.length;if(bytes>MAX_DOWNLOAD_BYTES)throw new Error('所选正文超过 256 MiB，请减少篇数');
     const parsed=publicTextHtml(new TextDecoder().decode(r.data),item);if(chapters.length===1)title=parsed.title;
+    poemCount += parsed.pieces || 0;
+    if (poemCount > MAX_POETRY_MERGE) throw new Error('合并选集超过 10000 篇，请减少所选 JSON 文件或分别入架');
     const part='<h1>'+escapeHtml(parsed.title)+'</h1>'+parsed.html+'<p>来源：'+escapeHtml(item.url)+'</p>';
     outputBytes+=new TextEncoder().encode(part).length;if(outputBytes>MAX_DOWNLOAD_BYTES)throw new Error('合并正文超过 256 MiB，请减少篇数');
     parts.push(part);

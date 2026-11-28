@@ -1,0 +1,8 @@
+.network-poem { display: flex; align-items: flex-start; gap: .6rem; padding: .65rem 0; border-bottom: 1px solid var(--line, #d5d0c4); }
+.network-poem > input, .network-file-check > input { width: 1.1rem; height: 1.1rem; flex: 0 0 auto; margin-top: .2rem; }
+.network-poem > span { min-width: 0; overflow-wrap: anywhere; }
+.network-poem small { display: block; opacity: .7; margin-top: .2rem; }
+.network-json-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.network-json-row > .network-entry { flex: 1 1 12rem; min-width: 0; }
+.network-json-row > .network-file-check { display: flex; align-items: center; flex: 0 0 auto; }
+.network-json-row > button:last-child { flex: 0 1 auto; }

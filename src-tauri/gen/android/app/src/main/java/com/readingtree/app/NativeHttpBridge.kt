@@ -44,8 +44,8 @@ class NativeHttpBridge(private val webView: WebView) {
     workers.execute {
       try {
         val url = URL(address)
-        require((url.protocol == "https" || webdav && url.protocol == "http") && url.userInfo == null) { "不支持的地址协议或内嵌账号" }
-        require(method == "GET" || method == "PROPFIND") { "不支持的请求方式" }
+        require((url.protocol == "https" || url.protocol == "http") && url.userInfo == null) { "不支持的地址协议或内嵌账号" }
+        require(method == "GET" || method == "POST" || method == "PROPFIND") { "不支持的请求方式" }
         require(limit in 1..268435456) { "无效的文件大小限制" }
         val connection = url.openConnection() as HttpURLConnection
         request.connection = connection

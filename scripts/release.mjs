@@ -12,7 +12,8 @@ const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
 const mode = process.argv[2] || 'all';
 if (!['all', 'windows', 'android', 'source', 'collect'].includes(mode)) throw new Error('Use all, windows, android, source or collect');
 const debug = process.argv.includes('debug');
-const output = path.join(root, 'releases', version);
+const description = JSON.parse(fs.readFileSync('package.json', 'utf8')).releaseDescription;
+const output = path.join(root, 'releases', description ? `${version} ${description.replace(/[<>:"/\\|?*]/g, '_')}` : version);
 fs.mkdirSync(output, { recursive: true });
 const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
 const releaseSection = changelog.split(/^## /m).slice(1).find(section => section.split(/\r?\n/, 1)[0].trim() === version);
@@ -131,7 +132,11 @@ if (['all', 'collect'].includes(mode)) {
     notes, downloads, sha256, platforms:{'windows-x86_64':{url:downloads.windows,signature}} }, null, 2) + '\n');
   console.log('Saved update.json (publish release assets before making this manifest live)');
 }
-if (mode === 'all' || mode === 'source' || mode === 'collect') sourceArchive();
-const hashes = fs.readdirSync(output).filter((name) => /\.(exe|apk|zip)$/.test(name)).map((name) => `${createHash('sha256').update(fs.readFileSync(path.join(output, name))).digest('hex')}  ${name}`);
+if (mode === 'all' || mode === 'source' || mode === 'collect') {
+  copy('src/engine/curatedSources.json', '阅读树_精选书源.json');
+  copy('docs/书源检测与精选书库.md', '书源使用说明.md');
+  sourceArchive();
+}
+const hashes = fs.readdirSync(output).filter((name) => /\.(exe|apk|zip)$/.test(name) || name === '阅读树_精选书源.json').map((name) => `${createHash('sha256').update(fs.readFileSync(path.join(output, name))).digest('hex')}  ${name}`);
 fs.writeFileSync(path.join(output, 'SHA256SUMS.txt'), hashes.join('\n') + '\n');
 console.log(`Output: ${output}`);

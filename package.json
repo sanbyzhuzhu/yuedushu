@@ -1,7 +1,8 @@
 {
   "name": "reading-tree",
   "private": true,
-  "version": "0.4.10",
+  "version": "0.4.16",
+  "releaseDescription": "256MiB备份与分批记录",
   "type": "module",
   "description": "阅读树 · 极简古典风电子书阅读器（Android 优先 + 桌面端）",
   "scripts": {
@@ -34,6 +35,9 @@
     "@tauri-apps/plugin-http": "^2.6.1",
     "fflate": "^0.8.3",
     "foliate-js": "^1.0.1",
+    "json5": "^2.2.3",
+    "jsonpath-plus": "^11.3.0",
+    "jsqr": "^1.4.0",
     "mammoth": "^1.12.3",
     "markdown-it": "^14.1.0",
     "opencc-js": "^1.4.2",

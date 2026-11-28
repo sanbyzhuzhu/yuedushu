@@ -6,6 +6,10 @@ import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
 import android.view.ActionMode
 import android.webkit.WebView
+import android.webkit.JavascriptInterface
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import org.json.JSONObject
 import android.view.View
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
@@ -18,6 +22,30 @@ class MainActivity : TauriActivity() {
   private var menuBridge: NativeMenuBridge? = null
   private var curActionMode: ActionMode? = null
   private var readingWebView: WebView? = null
+  private var scanId: String? = null
+  private val libraryScanner = registerForActivityResult(ScanContract()) { result ->
+    val id = scanId
+    scanId = null
+    if (id != null) sendScanResult(id, result.contents ?: "", if (result.contents == null) "已取消扫码或未授予相机权限" else "")
+  }
+
+  private fun sendScanResult(id: String, text: String, error: String) {
+    readingWebView?.evaluateJavascript("window.readingTreeScanResult?.(${JSONObject.quote(id)},${JSONObject.quote(text)},${JSONObject.quote(error)})", null)
+  }
+
+  inner class LibraryScannerBridge {
+    @JavascriptInterface
+    fun scan(id: String) {
+      runOnUiThread {
+        if (scanId != null) { sendScanResult(id, "", "请先完成当前扫码"); return@runOnUiThread }
+        scanId = id
+        try {
+          libraryScanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            .setPrompt("扫描 Olib / OPDS 书库二维码").setBeepEnabled(false).setOrientationLocked(false))
+        } catch (error: Exception) { scanId = null; sendScanResult(id, "", "无法打开扫码相机，请使用二维码图片导入") }
+      }
+    }
+  }
   private var backPending = false
   private val nativeImports by lazy { NativeImportBridge(this) }
   private data class ExportRequest(val id: String, val bytes: ByteArray, val bridge: NativeFileBridge)
@@ -113,6 +141,7 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     readingWebView = webView
+    webView.addJavascriptInterface(LibraryScannerBridge(), "ReadingTreeNativeScanner")
     webView.addJavascriptInterface(nativeImports, "ReadingTreeNativeImports")
     webView.addJavascriptInterface(NativeFileBridge(this, webView), "ReadingTreeNativeFiles")
     webView.addJavascriptInterface(NativeHttpBridge(webView), "ReadingTreeNativeHttp")

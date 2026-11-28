@@ -4,7 +4,9 @@ import { platform } from './platform/web';
 import type { BookMeta, Chapter } from './engine/types';
 
 const MANIFEST = 'manifest.json';
-const MAX_BYTES = 64 * 1024 * 1024;
+export const MAX_BACKUP_BYTES = 256 * 1024 * 1024;
+export const MAX_BACKUP_ZIP_BYTES = MAX_BACKUP_BYTES + 4 * 1024 * 1024;
+const MAX_BYTES = MAX_BACKUP_BYTES;
 const bookKey = /^(file|progress|annotations|style):(.+)$/;
 export interface BackupProgress { phase: 'collecting' | 'zipping' | 'downloading' | 'restoring' | 'done'; detail: string }
 export interface BackupInfo { books: number; exportedAt: number; includeRaw: boolean; merge?: boolean; format?: number }
@@ -30,7 +32,7 @@ export async function exportBackup(opts: { includeRaw: boolean; start?: number; 
   const zip = new Zip((error, data, final) => { if (error) zipError = error; else chunks.push(data); if (final) finished = true; });
   const add = (name: string, bytes: Uint8Array, binary = false) => {
     opts.signal?.throwIfAborted(); inputSize += bytes.byteLength;
-    if (inputSize > MAX_BYTES) throw new Error('本批数据超过 64 MiB，请减少本数或选择轻量备份。单本原文件过大时请另行保存源文件。');
+    if (inputSize > MAX_BYTES) throw new Error('本批数据超过 256 MiB，请减少本数或选择轻量备份。单本原文件过大时请另行保存源文件。');
     const entry = binary ? new ZipPassThrough(name) : new ZipDeflate(name, { level: 3 });
     zip.add(entry); entry.push(bytes, true); if (zipError) throw zipError;
   };
@@ -86,12 +88,12 @@ export async function exportBackup(opts: { includeRaw: boolean; start?: number; 
 }
 
 function readZip(buf: ArrayBuffer, onlyManifest = false) {
-  if (buf.byteLength > MAX_BYTES + 4 * 1024 * 1024) throw new Error('备份包过大，请使用分批备份文件（每批原始数据最多 64 MiB）');
+  if (buf.byteLength > MAX_BYTES + 4 * 1024 * 1024) throw new Error('备份包过大，请使用分批备份文件（每批原始数据最多 256 MiB）');
   let total = 0;
   return unzipSync(new Uint8Array(buf), { filter: (entry) => {
     if (onlyManifest && entry.name !== MANIFEST) return false;
     total += entry.originalSize;
-    if (total > MAX_BYTES || entry.originalSize > MAX_BYTES) throw new Error('备份解压后超过 64 MiB，请使用较小的分批备份');
+    if (total > MAX_BYTES || entry.originalSize > MAX_BYTES) throw new Error('备份解压后超过 256 MiB，请使用较小的分批备份');
     return true;
   } });
 }

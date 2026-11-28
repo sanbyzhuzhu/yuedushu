@@ -27,3 +27,4 @@
 -keep class com.readingtree.app.NativeMenuBridge { *; }
 -keep class com.readingtree.app.NativeImportBridge { *; }
 -keep class com.readingtree.app.NativeUpdateBridge { *; }
+-keep class com.readingtree.app.MainActivity$LibraryScannerBridge { *; }

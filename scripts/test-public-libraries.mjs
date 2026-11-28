@@ -35,7 +35,7 @@ try {
     const reject = async (fn, label, fragment) => { try { await fn(); } catch (e) { check(!fragment || e.message.includes(fragment), label); return; } throw new Error(label); };
     check(net.gutenbergSearch(' 红楼梦 & 诗 ') === 'https://www.gutenberg.org/ebooks/search.opds/?query=%E7%BA%A2%E6%A5%BC%E6%A2%A6%20%26%20%E8%AF%97', 'Gutenberg search correctly encodes Chinese and special characters');
     const web = net.parseWebList('<title>公开书单</title><base href="https://files.test/books/"><nav><a href="/nav">导航</a></nav><a href="a.epub">一本</a><a href="a.epub">重复</a><a href="http://bad.test/b.epub">降级</a><a href="javascript:bad()">脚本</a><a href="/download?id=1" download="第二本.pdf">二</a><div style="display: none"><a href="hidden.epub">隐藏</a></div><a href="/next">下页</a>', 'https://files.test/list');
-    check(web.entries.length === 3 && web.entries[0].url === 'https://files.test/books/a.epub' && web.entries[1].filename === '第二本.pdf', 'web booklist resolves base URLs, deduplicates and filters hidden/unsafe links');
+    check(web.entries.length === 4 && web.entries[0].url === 'https://files.test/books/a.epub' && web.entries.some(e=>e.filename === '第二本.pdf'), 'web booklist resolves base URLs, supports HTTP, deduplicates and filters hidden/unsafe links');
     await reject(() => net.parseWebList('<div id="app"></div><script>dynamic()</script>', 'https://example.feishu.cn/doc'), 'dynamic Feishu page explains direct-file fallback', '动态加载');
     const gx = net.parseWebList(toc, 'https://www.gxhj.com/txt/classic/');
     check(gx.chapterBook?.chapters.length === 2 && gx.entries.every((e) => e.textPage === 'gxhj'), 'gxhj TOC exposes ordered text chapter range');
@@ -43,7 +43,7 @@ try {
     check(net.githubCatalogUrl('https://github.com/demo/books.git') === 'https://api.github.com/repos/demo/books/contents', 'GitHub repository URL resolves without installing a Git client');
     await reject(() => net.githubCatalogUrl('https://github.com/demo/books/tree/main'), 'unsupported GitHub tree address explains repository homepage');
     const repo = net.parseGithub(JSON.stringify(github), 'https://api.github.com/repos/demo/books/contents');
-    check(repo.entries.length === 2 && !repo.entries[0].download && repo.entries[1].filename === '经典.txt', 'GitHub shows subfolders and supported files, omits oversized and JSON files');
+    check(repo.entries.length === 3 && !repo.entries[0].download && repo.entries.some(e=>e.filename === '经典.txt') && repo.entries.some(e=>e.filename === 'data.json' && e.textPage === 'poetry'), 'GitHub shows subfolders, supported books and JSON data, omits oversized files');
     const realFetch = window.fetch;
     try {
       window.fetch = async () => new Response('{}', { status: 403 });
@@ -92,13 +92,14 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'output/playwright/public-libraries-mobile.png' });
   await page.evaluate(() => { window.__openedSites = []; window.ReadingTreeNativeMenu = { openWebsite: (site) => { window.__openedSites.push(site); return true; } }; });
-  for (const site of ['net','org']) {
+  for (const site of ['net']) {
     await page.getByRole('button').filter({hasText:'好读 · haodoo.'+site}).click();await page.locator('.network-entry').first().waitFor();
     ok((await page.getByLabel('书库地址',{exact:true}).inputValue())==='https://haodoo.'+site+'/', 'Haodoo '+site+' opens in-app catalog');
     await page.getByRole('button',{name:'在原站打开本页 ↗',exact:true}).click();
   }
+  await page.getByRole('button').filter({hasText:'好读 · haodoo.org'}).click();
   for (const title of ['中国国家图书馆', '书格']) await page.getByRole('button').filter({ hasText: title }).click();
-  ok(await page.evaluate(() => window.__openedSites.join('|') === 'https://haodoo.net/|https://haodoo.org/|national-library|shuge'), 'external actions open known catalog pages without login or cart actions');
+  ok(await page.evaluate(() => window.__openedSites.join('|') === 'https://haodoo.net/|haodoo-org|national-library|shuge'), 'external actions open known catalog pages without login or cart actions');
   await page.getByRole('button', { name: '中文藏书', exact: true }).click(); await page.getByRole('heading', { name: '古腾堡目录' }).waitFor();
   ok((await page.getByLabel('书库地址', { exact: true }).inputValue()).endsWith('?query=l.zh'), 'Gutenberg Chinese preset opens official OPDS');
   await page.getByLabel('搜索古腾堡').fill('红楼梦'); await page.getByRole('button', { name: '搜索', exact: true }).click();

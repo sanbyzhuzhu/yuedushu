@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+import { shelfAction } from './shelf-actions.mjs';
+
+const server = await createServer({ server: { host: '127.0.0.1', port: 5197, strictPort: true } });
+await server.listen();
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+page.setDefaultTimeout(120000);
+const errors = []; page.on('pageerror', e => errors.push(String(e)));
+const source = { bookSourceName: '书源', bookSourceUrl: 'http://library.test', searchUrl: '/?q={{key}}', ruleSearch: { bookList: '.book', name: 'a@text', bookUrl: 'a@href' }, ruleToc: { chapterList: '.toc a', chapterName: '@text', chapterUrl: '@href' }, ruleContent: { content: '#body@html' } };
+fs.mkdirSync('.tmp', { recursive: true });
+const temp = fs.mkdtempSync(path.resolve('.tmp/source-capacity-'));
+try {
+  await page.goto('http://127.0.0.1:5197'); await page.locator('.shelf').waitFor();
+  await shelfAction(page, '网络书库'); await page.getByRole('tab', { name: '阅读书源' }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === '导入书源 JSON / TXT' && !b.disabled));
+  const json = Buffer.from(JSON.stringify(Array.from({ length: 100000 }, (_, i) => ({ ...source, bookSourceName: `测试书源${i}` }))));
+  const buffer = Buffer.alloc(50 * 1024 * 1024, ' '); json.copy(buffer);
+  const started = Date.now();
+  fs.writeFileSync(path.join(temp, 'sources.txt'), buffer);
+  await page.locator('.drawer input[type=file]').setInputFiles(path.join(temp, 'sources.txt'));
+  await page.getByText('已导入 100000 个兼容书源', { exact: true }).waitFor();
+  console.log(`PASS exact 50 MiB / 100000 source file imported and saved (${Date.now() - started} ms on desktop Edge)`);
+  const optionCount = await page.getByLabel('选择书源', { exact: true }).locator('option').count();
+  assert.ok(optionCount > 0 && optionCount <= 101);
+  await page.getByRole('button', { name: '下一页书源', exact: true }).click();
+  await page.getByLabel('筛选书源', { exact: true }).fill('测试书源99999');
+  await page.getByLabel('选择书源', { exact: true }).selectOption('99999');
+  assert.equal(await page.getByLabel('选择书源', { exact: true }).inputValue(), '99999');
+  console.log('PASS bounded source options, pagination, filtering and selection of last source');
+  const replacement = { ...source, bookSourceName: '测试书源99999', searchUrl: '/updated?q={{key}}' };
+  await page.locator('.drawer input[type=file]').setInputFiles({ name: 'update.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([replacement])) });
+  await page.getByText('已导入 1 个兼容书源', { exact: true }).waitFor();
+  const stored = await page.evaluate(async () => { const { platform } = await import('/src/platform/web.ts'); const list = await platform.kvGet('networkSources'); return { count: list.length, last: list[list.length - 1].searchUrl }; });
+  assert.deepEqual(stored, { count: 100000, last: replacement.searchUrl });
+  console.log('PASS duplicate source updated at full capacity without losing saved entries');
+  fs.writeFileSync(path.join(temp, 'too-large.txt'), Buffer.alloc(50 * 1024 * 1024 + 1, ' '));
+  await page.locator('.drawer input[type=file]').setInputFiles(path.join(temp, 'too-large.txt'));
+  await page.getByRole('alert').filter({ hasText: '超过 50 MB' }).waitFor();
+  await page.getByRole('dialog', { name: '网络书库' }).getByRole('button', { name: '关闭', exact: true }).click();
+  await shelfAction(page, '网络书库'); await page.getByRole('tab', { name: '阅读书源' }).click();
+  await page.getByText(/已保存 100000 个书源/).waitFor();
+  assert.ok(await page.getByLabel('选择书源', { exact: true }).locator('option').count() <= 101);
+  console.log('PASS oversized file rejected, saved 100000 sources survive panel reopen');
+  assert.deepEqual(errors, []);
+} finally {
+  await browser.close(); await server.close();
+  for (const name of ['sources.txt', 'too-large.txt']) if (fs.existsSync(path.join(temp, name))) fs.unlinkSync(path.join(temp, name));
+  fs.rmdirSync(temp);
+}

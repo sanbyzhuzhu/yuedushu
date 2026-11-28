@@ -135,7 +135,7 @@ try {
       const cancel = new AbortController(); cancel.abort(); savedBlob = null;
       await reject(() => backup.exportBackup({ includeRaw: false, count: 1, signal: cancel.signal }), 'cancelled export creates no partial download');
       check(savedBlob === null, 'cancelled backup publishes no file');
-      const oversized = zipSync({ 'manifest.json': strToU8(JSON.stringify({ app: 'reading-tree', books: 0, exportedAt: 1 })), 'too-large': new Uint8Array(65 * 1024 * 1024) });
+      const oversized = zipSync({ 'manifest.json': strToU8(JSON.stringify({ app: 'reading-tree', books: 0, exportedAt: 1 })), 'too-large': new Uint8Array(257 * 1024 * 1024) });
       await reject(() => backup.restoreBackup(oversized.buffer), 'compressed oversized backup rejected before decompression and database writes');
       check(!!(await platform.getCover('load-00000')), 'backup size rejection preserves existing stored covers');
       const old = zipSync({ 'manifest.json': strToU8(JSON.stringify({ app: 'reading-tree', books: 1, exportedAt: 1, includeRaw: false })), 'meta/books.json': strToU8(JSON.stringify([{ ...meta, id: 'legacy', format: 'txt', title: '旧备份', cover: 'data:image/svg+xml;base64,PHN2Zy8+' }])), 'content/legacy.json': strToU8(JSON.stringify([{ title: '正文', html: '<p>旧书正文</p>', chars: 4 }])) });

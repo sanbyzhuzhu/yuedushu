@@ -53,10 +53,14 @@ try {
     const json = net.parseOpds(JSON.stringify({ metadata: { title: 'OPDS 2' }, publications: [{ metadata: { title: '二', author: [{ name: '乙' }] }, links: [{ href: '/b.epub', type: 'application/epub+zip', rel: 'http://opds-spec.org/acquisition' }] }], navigation: [{ title: '目录', href: '/cat' }], links: [{ rel: ['next'], href: '/p2' }] }), 'https://library.test/');
     check(json.entries.length === 2 && json.entries[0].author === '乙' && json.next.endsWith('/p2'), 'OPDS 2 metadata, navigation and next page');
     await reject(() => net.parseOpds('<html>登录</html>', 'https://library.test'), 'share pages rejected as catalogs');
-    await reject(() => net.secureUrl('http://library.test'), 'HTTP downgrade rejected');
+    check(net.secureUrl('http://library.test') === 'http://library.test/', 'HTTP catalogs supported');
+    const httpFeed = net.parseOpds(atom, 'http://192.168.1.17:8765/opds');
+    check(httpFeed.entries.length === 2 && httpFeed.entries[0].url === 'http://192.168.1.17:8765/files/book.txt' && httpFeed.next === 'http://192.168.1.17:8765/next', 'HTTP OPDS links and pagination preserved');
+    await reject(() => net.secureUrl('file:///book.txt'), 'non-HTTP protocols rejected');
     await reject(() => net.secureUrl('https://user:password@library.test'), 'credentials in URLs rejected');
     check(net.parseSources(JSON.stringify(source)).sources.length === 1, 'pure CSS Legado source accepted');
-    for (const patch of [{ ruleContent: { content: '@js:java.ajax(url)' } }, { searchUrl: '/search, {"method":"POST"}' }, { ruleToc: { ...source.ruleToc, nextTocUrl: 'a@href' } }]) check(net.parseSources(JSON.stringify({ ...source, ...patch })).rejected.length === 1, 'unsupported Legado rule reported');
+    for (const patch of [{ ruleContent: { content: '@js:java.ajax(url)' } }, { searchUrl: '/search, {"method":"POST"}' }, { ruleContent: { ...source.ruleContent, webJs: 'window.run()' } }]) check(net.parseSources(JSON.stringify({ ...source, ...patch })).rejected.length === 1, 'unsupported Legado rule reported');
+    check(net.parseSources(JSON.stringify({ ...source, searchUrl: '/search,{"method":"POST","body":"q={{key}}"}', ruleToc: { ...source.ruleToc, nextTocUrl: 'a@href' } })).sources.length === 1, 'anonymous POST search and declarative TOC pagination supported');
     const split = md.splitMdChapters('---\ntitle: 我的笔记\n---\n# **第一卷**\n\n## 小节一\n正文\n\n```md\n# 代码里的标题\n```\n\n## 小节二\n内容\n\n下一卷\n====\n\n末节\n----\n正文', 'fallback');
     check(split.title === '我的笔记' && split.chapters.map((c) => c.title).join('|') === '第一卷|小节一|小节二|下一卷|末节', 'Markdown H1/H2, Setext and bold headings parsed without code fences');
     check(md.mdToHtml(split.chapters[0].text).includes('<h1>') && split.chapters[1].level === 2, 'Markdown headings remain visible and levels preserved');
@@ -99,6 +103,13 @@ try {
     ok(await page.locator('.drawer').evaluate((el) => el.getBoundingClientRect().left >= 0 && el.getBoundingClientRect().right <= innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1), `network panel fits ${width}px phone`);
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('书库二维码图片').setInputFiles('tests/fixtures/library-qr.png');
+  await page.getByText('已识别书库地址，请确认类型和地址，再打开书库选择书籍，或收藏地址。', { exact: true }).waitFor();
+  ok(await page.getByLabel('书库地址', { exact: true }).inputValue() === 'http://192.168.1.17:8765/opds', 'QR image decoded into Olib OPDS address');
+  await page.evaluate(() => { window.ReadingTreeNativeScanner = { scan: id => window.readingTreeScanResult(id, 'http://192.168.1.17:8765/', '') }; });
+  await page.getByRole('button', { name: '扫码添加书库', exact: true }).click();
+  await page.getByText('已识别书库地址，请确认类型和地址，再打开书库选择书籍，或收藏地址。', { exact: true }).waitFor();
+  ok(await page.getByLabel('书库地址', { exact: true }).inputValue() === 'http://192.168.1.17:8765/opds', 'Olib QR fills OPDS address for confirmation');
   await page.getByLabel('书库地址', { exact: true }).fill('https://library.test/opds');
   await page.getByRole('button', { name: '打开书库', exact: true }).click();
   await page.getByRole('heading', { name: '我的远方书库' }).waitFor();
@@ -113,7 +124,9 @@ try {
   await page.getByRole('button', { name: '打开书库', exact: true }).click();
   await page.locator('.network-entry').filter({ hasText: '网盘书籍.txt' }).waitFor(); ok(await page.locator('.network-entry').count() === 1, 'WebDAV omits current directory and lists supported files');
   await page.getByRole('tab', { name: '阅读书源' }).click();
-  await page.locator('.drawer input[type=file]').setInputFiles({ name: 'source.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([source, { ...source, bookSourceName: '脚本书源', ruleContent: { content: '@js:bad()' } }])) });
+  await page.getByRole('button', { name: '导入书源 JSON / TXT', exact: true }).waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === '导入书源 JSON / TXT' && !b.disabled));
+  await page.locator('.drawer input[type=file]').setInputFiles({ name: 'source.txt', mimeType: 'text/plain', buffer: Buffer.from('\uFEFF' + JSON.stringify([source, { ...source, bookSourceName: '脚本书源', ruleContent: { content: '@js:bad()' } }])) });
   await page.getByText('已导入 1 个兼容书源，跳过 1 个', { exact: true }).waitFor();
   ok((await page.getByRole('alert').textContent()).includes('脚本书源'), 'incompatible source named with reason');
   await page.getByLabel('搜索书名 / 作者').fill('山水'); await page.getByRole('button', { name: '搜索书源', exact: true }).click();

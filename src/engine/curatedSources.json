@@ -1,0 +1,26 @@
+[
+  {
+    "bookSourceName": "5000言 · 经典名著（目录检索）",
+    "bookSourceUrl": "https://5000yan.com/",
+    "searchUrl": "/?reading_tree_title={{key}}",
+    "ruleSearch": { "bookList": ".hotbook", "name": ".hotbook-name@text", "bookUrl": "@href", "filter": "title" },
+    "ruleToc": { "chapterList": ".novel-chapter-link, .category-link, .book-chapters a", "chapterName": "@text", "chapterUrl": "@href" },
+    "ruleContent": { "content": "article.reading-content@html" }
+  },
+  {
+    "bookSourceName": "国学汉籍 · 热门文字古籍（目录检索）",
+    "bookSourceUrl": "https://www.gxhj.com/",
+    "searchUrl": "/?reading_tree_title={{key}}",
+    "ruleSearch": { "bookList": ".mcon a[href^='/txt/']", "name": "@text", "bookUrl": "@href", "filter": "title" },
+    "ruleToc": { "chapterList": ".mcon li a[href$='.html']", "chapterName": "@text", "chapterUrl": "@href" },
+    "ruleContent": { "content": ".panel.content .mcon@html" }
+  },
+  {
+    "bookSourceName": "落霞读书 · 古典小说（目录检索）",
+    "bookSourceUrl": "https://luoxiadushu.com/",
+    "searchUrl": "/jingdian/?reading_tree_title={{key}}",
+    "ruleSearch": { "bookList": ".pop-book2", "name": "h2@text", "bookUrl": "a@href", "filter": "title" },
+    "ruleToc": { "chapterList": ".book-list li a", "chapterName": "@text", "chapterUrl": "@href" },
+    "ruleContent": { "content": "#nr1@html" }
+  }
+]

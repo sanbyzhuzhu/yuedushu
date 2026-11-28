@@ -35,8 +35,8 @@ export function androidFetch(url: string, init: { method: string; headers: Recor
     if (init.signal.aborted) { request.finish(new Error('已取消')); return; }
     init.signal.addEventListener('abort', abort, { once: true });
     try {
-      if (webdav && new URL(url).protocol === 'http:') {
-        if (!native.fetchWebdav) throw new Error('此安装版本不支持 HTTP WebDAV，请升级应用。');
+      if (new URL(url).protocol === 'http:') {
+        if (!native.fetchWebdav) throw new Error('此安装版本不支持 HTTP 书库，请升级应用。');
         native.fetchWebdav(id, url, init.method, JSON.stringify(init.headers), init.body || '', limit);
       } else native.fetch(id, url, init.method, JSON.stringify(init.headers), init.body || '', limit);
     }

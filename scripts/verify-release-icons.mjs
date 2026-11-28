@@ -10,7 +10,8 @@ const sdk = process.env.ANDROID_HOME || path.join(process.env.LOCALAPPDATA, 'And
 const aapt = path.join(sdk, 'build-tools', '36.0.0', 'aapt.exe');
 fs.mkdirSync('.tmp', { recursive: true });
 const apk = path.resolve('.tmp/verify-icons.apk');
-fs.copyFileSync(`releases/${version}/阅读树_${version}_Android_release.apk`, apk);
+const description = JSON.parse(fs.readFileSync('package.json', 'utf8')).releaseDescription;
+fs.copyFileSync(`releases/${version}${description ? ' ' + description : ''}/阅读树_${version}_Android_release.apk`, apk);
 function dump(...args) {
   const result = spawnSync(aapt, ['dump', ...args], { encoding: 'utf8', windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error(result.error?.message || result.stderr);

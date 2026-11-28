@@ -2,6 +2,11 @@
 import { decodeText } from './txt';
 import { escapeHtml, parseHtml } from './importExtra';
 import { androidFetch, hasAndroidHttp } from '../platform/androidHttp';
+import { normalizeLegacySource, validateLegacySource, legacySearchRequest, legacyElements, legacyExtract, legacyContentIsHtml } from './legacySource';
+import { sourceHeaders, sourceSearchRequest, sourceRuleItems, sourceRuleValue, sourceRuleIsHtml, validateDeclarativeSource } from './sourceRules';
+import type { SourceData } from './sourceRules';
+import { assertPublicSource } from './sourcePolicy';
+import { decodeSourceResponse } from './sourceResponse';
 export const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 
 export type LibraryKind = 'opds' | 'webdav' | 'web' | 'github' | 'public';
@@ -15,12 +20,12 @@ const BOOK_EXT = /\.(epub|txt|md|markdown|pdf|docx|mobi|azw3?|prc|fb2(?:\.zip)?|
 const MIME_EXT: Record<string, string> = { 'application/epub+zip': 'epub', 'application/pdf': 'pdf', 'text/plain': 'txt', 'text/html': 'html', 'application/xhtml+xml': 'html', 'text/markdown': 'md', 'application/x-mobipocket-ebook': 'mobi', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx', 'application/vnd.oasis.opendocument.text': 'odt', 'application/ofd': 'ofd' };
 export function secureUrl(value: string, base?: string): string {
   const url = new URL(value, base);
-  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('请使用 HTTPS 地址，账号密码请填在独立输入框。局域网 HTTP 书库需先配置 HTTPS。');
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('请使用 HTTP 或 HTTPS 地址，账号密码请填在独立输入框。');
   url.hash = '';
   return url.href;
 }
 const local = (node: Document | Element, name: string) => Array.from(node.getElementsByTagNameNS('*', name));
-/** HTTP is an explicit option for a user's own WebDAV, never for public sources. */
+/** WebDAV uses the same supported protocols as other catalogs. */
 export function webdavUrl(value: string, base?: string): string {
   const url = new URL(value, base);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('WebDAV 请使用 HTTP 或 HTTPS 地址，账号密码请填在独立输入框。');
@@ -187,16 +192,19 @@ export function parseGithub(text: string, base: string): Catalog {
   const entries: CatalogEntry[] = [];
   for (const item of data) {
     if (item.type === 'dir') { const url = maybeUrl(item.url, base); if (url && new URL(url).hostname === 'api.github.com') entries.push({ title: String(item.name), url, download: false }); }
-    else if (item.type === 'file' && typeof item.name === 'string' && BOOK_EXT.test(item.name)) { const url = maybeUrl(item.download_url, base); if (url && item.size <= MAX_DOWNLOAD_BYTES) entries.push({ title: item.name, url, download: true, filename: item.name }); }
+    else if (item.type === 'file' && typeof item.name === 'string' && (BOOK_EXT.test(item.name) || /\.json$/i.test(item.name))) { const url = maybeUrl(item.download_url, base); if (url && item.size <= MAX_DOWNLOAD_BYTES) entries.push({ title: item.name, url, download: true, filename: item.name, ...(/\.json$/i.test(item.name) ? { textPage: 'poetry' as const } : {}) }); }
   }
   entries.sort((a, b) => Number(a.download) - Number(b.download) || a.title.localeCompare(b.title));
-  return { title: 'GitHub · ' + decodeURIComponent(new URL(base).pathname.replace(/^\/repos\//, '').replace('/contents', '')), entries, notice: '只列出文件夹和支持的书籍格式（单文件最多 256 MiB）。GitHub 未登录接口有访问频率限制，单目录最多返回 1000 项。' };
+  return { title: 'GitHub · ' + decodeURIComponent(new URL(base).pathname.replace(/^\/repos\//, '').replace('/contents', '')), entries, notice: 'JSON 可预览诗词、勾选合并入架或保存原始文件；其他 JSON 结构可下载保存。单文件最多 256 MiB，GitHub 接口有访问频率限制，单目录最多返回 1000 项。' };
 }
 
 /** Manual redirects keep credentials on their original origin, including native HTTP. */
-export async function requestBytes(address: string, options: { signal?: AbortSignal; credentials?: Credentials; method?: string; limit?: number; progress?: (bytes: number) => void; webdav?: boolean } = {}) {
+export async function requestBytes(address: string, options: { signal?: AbortSignal; credentials?: Credentials; method?: string; body?: string; headers?: Record<string, string>; anonymous?: boolean; limit?: number; progress?: (bytes: number) => void; webdav?: boolean } = {}) {
   const validateUrl = options.webdav ? webdavUrl : secureUrl;
   let url = validateUrl(address);
+  const initialOrigin = new URL(url).origin;
+  let method = options.method || 'GET', body = options.body;
+  let redirectedPost = false;
   const controller = new AbortController();
   const cancel = () => controller.abort();
   options.signal?.addEventListener('abort', cancel, { once: true });
@@ -206,14 +214,14 @@ export async function requestBytes(address: string, options: { signal?: AbortSig
   try {
     const native = '__TAURI_INTERNALS__' in window ? await import('@tauri-apps/plugin-http') : null;
     for (let hop = 0; hop < 6; hop++) {
-      const headers: Record<string, string> = {};
-      if (options.credentials?.username && new URL(url).origin === options.credentials.origin) {
+      const headers: Record<string, string> = new URL(url).origin === initialOrigin ? { ...options.headers } : {};
+      if (redirectedPost) for (const key of Object.keys(headers)) if (/^content-type$/i.test(key)) delete headers[key];
+      if (!options.anonymous && options.credentials?.username && new URL(url).origin === options.credentials.origin) {
         const bytes = new TextEncoder().encode(`${options.credentials.username}:${options.credentials.password}`);
         headers.Authorization = 'Basic ' + btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(''));
       }
-      const method = options.method || 'GET';
       if (method === 'PROPFIND') { headers.Depth = '1'; headers['Content-Type'] = 'application/xml'; }
-      const init = { method, headers, signal: controller.signal, redirect: 'manual' as const, ...(method === 'PROPFIND' ? { body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>' } : {}) };
+      const init = { method, headers, signal: controller.signal, redirect: 'manual' as const, ...(options.anonymous ? { credentials: 'omit' as const } : {}), ...(body !== undefined ? { body } : method === 'PROPFIND' ? { body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>' } : {}) };
       let response: Response;
       try {
         response = native ? await native.fetch(url, { ...init, maxRedirections: 0, connectTimeout: 15000 }) : await fetch(url, init);
@@ -228,9 +236,13 @@ export async function requestBytes(address: string, options: { signal?: AbortSig
         await response.body?.cancel();
         const nextUrl = validateUrl(location, url);
         if (new URL(url).protocol === 'https:' && new URL(nextUrl).protocol === 'http:') throw new Error('书库跳转从 HTTPS 降为 HTTP，已停止连接，请检查服务器地址。');
+        if (method === 'POST') {
+          if ([301, 302, 303].includes(response.status)) { method = 'GET'; body = undefined; redirectedPost = true; }
+          else if (new URL(nextUrl).origin !== new URL(url).origin) throw new Error('搜索表单跳转到其他网站，已停止发送表单');
+        }
         url = nextUrl; continue;
       }
-      if (!response.ok) { await response.body?.cancel(); throw new Error(new URL(url).hostname === 'api.github.com' && (response.status === 403 || response.status === 429) ? 'GitHub 暂时限制了访问频率，请稍后重试，或使用仓库文件的 Raw 下载直链' : response.status === 401 || response.status === 403 ? '书库拒绝访问，请检查账号、应用密码或链接权限' : `请求失败（HTTP ${response.status}）`); }
+      if (!response.ok) { await response.body?.cancel(); throw new Error(new URL(url).hostname === 'api.github.com' && (response.status === 403 || response.status === 429) ? 'GitHub 暂时限制了访问频率，请稍后重试，或使用仓库文件的 Raw 下载直链' : response.status === 401 || response.status === 403 ? options.anonymous ? '该公开书源要求验证、登录或限制访问，本版不处理登录' : '书库拒绝访问，请检查账号、应用密码或链接权限' : `请求失败（HTTP ${response.status}）`); }
       resetTimeout();
       const limit = options.limit || 8 * 1024 * 1024;
       if (Number(response.headers.get('content-length')) > limit) { await response.body?.cancel(); throw new Error(`文件超过 ${limit / 1024 / 1024} MB 限制，请下载后从本地导入`); }
@@ -295,7 +307,7 @@ export async function downloadBook(url: string, name: string, signal: AbortSigna
   return new File([r.data], filename, { type });
 }
 
-export interface BookSource { bookSourceName: string; bookSourceUrl: string; searchUrl: string; ruleSearch: Record<string, string>; ruleBookInfo?: Record<string, string>; ruleToc: Record<string, string>; ruleContent: Record<string, string> }
+export interface BookSource { bookSourceName: string; bookSourceUrl: string; searchUrl: string; ruleSearch: Record<string, string>; ruleBookInfo?: Record<string, string>; ruleToc: Record<string, string>; ruleContent: Record<string, string>; format?: 'legacy' | 'declarative'; httpUserAgent?: string; requestHeaders?: Record<string, string> }
 export const GXHJ_TEXT_SOURCE: BookSource = { bookSourceName: '国学汉籍', bookSourceUrl: 'https://www.gxhj.com/', searchUrl: '/', ruleSearch: {}, ruleToc: {}, ruleContent: { content: '.panel.content .mcon@html' } };
 function ruleParts(rule: string): { css: string; attr: string } {
   if (/[@<]js|javascript:|\{\{|\$\.|^\/|##|&&|\|\||@(?:webview|json|xpath)|\$\d/i.test(rule)) throw new Error('含脚本、替换或组合规则，本版仅支持 CSS 规则');
@@ -316,35 +328,128 @@ function extract(root: ParentNode, rule: string): string {
   const { attr } = ruleParts(rule);
   return elements(root, rule).map((el) => attr === 'html' ? el.innerHTML : attr === 'text' || attr === 'all' ? el.textContent || '' : el.getAttribute(attr) || '').join(attr === 'html' ? '' : '\n').trim();
 }
-export function parseSources(text: string): { sources: BookSource[]; rejected: string[] } {
-  const json = JSON.parse(text), list = Array.isArray(json) ? json : [json];
-  if (list.length > 500) throw new Error('每次最多导入 500 个书源');
+export const MAX_SOURCE_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_SOURCE_COUNT = 100000;
+function sourceList(text: string): unknown[] {
+  let json: unknown;
+  try { json = JSON.parse(text.replace(/^\uFEFF/, '').trim()); }
+  catch { throw new Error('书源文件需包含 JSON 格式的阅读 / Legado 规则；支持 .json 或 .txt 文件，纯网址列表不是书源规则。'); }
+  const list = Array.isArray(json) ? json : [json];
+  if (list.length > MAX_SOURCE_COUNT) throw new Error('每次最多导入 100000 个书源');
+  return list;
+}
+function parseSourceItems(list: any[], validatedRules = new Set<string>()): { sources: BookSource[]; rejected: string[] } {
   const sources: BookSource[] = [], rejected: string[] = [];
   for (const source of list) {
     const name = String(source?.bookSourceName || '未命名书源');
     try {
       if (!source || typeof source !== 'object') throw new Error('格式错误');
       secureUrl(source.bookSourceUrl);
-      if (source.header || source.loginUrl || source.jsLib || source.bookSourceType && source.bookSourceType !== 0) throw new Error('需要登录、自定义请求或非文本引擎');
-      if (typeof source.searchUrl !== 'string' || /<js|@js|\{\{(?!\s*(key|page)\s*\}\})|,\s*\{|\$\{|\{searchTerms\}/i.test(source.searchUrl)) throw new Error('不支持搜索脚本或 POST 请求');
-      secureUrl(source.searchUrl.replace(/\{\{\s*key\s*\}\}/g, 'test').replace(/\{\{\s*page\s*\}\}/g, '1'), source.bookSourceUrl);
-      for (const [section, required] of [['ruleSearch', ['bookList', 'name', 'bookUrl']], ['ruleToc', ['chapterList', 'chapterName', 'chapterUrl']], ['ruleContent', ['content']]] as const) {
-        for (const key of required) if (typeof source[section]?.[key] !== 'string' || !source[section][key]) throw new Error(`缺少 ${section}.${key}`);
+      assertPublicSource(source);
+      const headers = sourceHeaders(source.header || source.requestHeaders, source.bookSourceUrl);
+      if (typeof source.ruleSearchUrl === 'string' && !source.searchUrl) { const item = normalizeLegacySource(source); item.requestHeaders = headers; sources.push(item); continue; }
+      if (source.format === 'legacy') {
+        validateLegacySource(source);
+        sources.push({ bookSourceName: name, bookSourceUrl: source.bookSourceUrl, searchUrl: source.searchUrl, ruleSearch: source.ruleSearch, ruleBookInfo: source.ruleBookInfo, ruleToc: source.ruleToc, ruleContent: source.ruleContent, format: 'legacy', httpUserAgent: source.httpUserAgent, requestHeaders: headers }); continue;
       }
-      const fields: Record<string, string[]> = { ruleSearch: ['bookList', 'name', 'author', 'bookUrl'], ruleBookInfo: ['tocUrl'], ruleToc: ['chapterList', 'chapterName', 'chapterUrl'], ruleContent: ['content'] };
-      for (const [section, names] of Object.entries(fields)) for (const key of names) if (source[section]?.[key]) ruleParts(source[section][key]);
-      if (source.ruleToc.nextTocUrl || source.ruleContent.nextContentUrl || source.ruleContent.replaceRegex || source.ruleContent.webJs || source.ruleContent.sourceRegex || source.ruleToc.isReverse || source.ruleToc.isVolume) throw new Error('含分页、脚本或目录特殊规则，暂不兼容');
-      sources.push({ bookSourceName: name, bookSourceUrl: source.bookSourceUrl, searchUrl: source.searchUrl, ruleSearch: source.ruleSearch, ruleBookInfo: source.ruleBookInfo, ruleToc: source.ruleToc, ruleContent: source.ruleContent });
+      if (typeof source.searchUrl !== 'string') throw new Error('缺少搜索地址');
+      const item: BookSource = { bookSourceName: name, bookSourceUrl: source.bookSourceUrl, searchUrl: source.searchUrl, ruleSearch: source.ruleSearch, ruleBookInfo: source.ruleBookInfo, ruleToc: source.ruleToc, ruleContent: source.ruleContent, format: 'declarative', requestHeaders: headers };
+      validateDeclarativeSource(item, validatedRules);
+      sources.push(item);
     } catch (e) { rejected.push(`${name}：${e instanceof Error ? e.message : '规则不兼容'}`); }
   }
   return { sources, rejected };
 }
-async function sourcePage(url: string, signal: AbortSignal) {
-  const r = await requestBytes(url, { signal, limit: 4 * 1024 * 1024 });
-  return { doc: new DOMParser().parseFromString(decodeText(r.data.buffer as ArrayBuffer), 'text/html'), url: r.url };
+export function parseSources(text: string): { sources: BookSource[]; rejected: string[] } {
+  return parseSourceItems(sourceList(text));
+}
+export async function validateSourcesAsync(list: unknown[], signal: AbortSignal, progress?: (text: string) => void) {
+  if (!Array.isArray(list) || list.length > MAX_SOURCE_COUNT) throw new Error('最多保存 100000 个书源');
+  const sources: BookSource[] = [], rejected: string[] = [], validatedRules = new Set<string>();
+  for (let start = 0; start < list.length; start += 250) {
+    signal.throwIfAborted();
+    const batch = parseSourceItems(list.slice(start, start + 250), validatedRules);
+    for (const item of batch.sources) sources.push(item);
+    for (const item of batch.rejected) rejected.push(item);
+    progress?.(`正在检查书源 ${Math.min(start + 250, list.length)} / ${list.length}`);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  signal.throwIfAborted(); return { sources, rejected };
+}
+export async function parseSourcesAsync(text: string, signal: AbortSignal, progress?: (text: string) => void) {
+  signal.throwIfAborted();
+  return validateSourcesAsync(sourceList(text), signal, progress);
+}
+export async function mergeSources(existing: BookSource[], incoming: BookSource[], signal: AbortSignal): Promise<BookSource[]> {
+  const next: BookSource[] = [], positions = new Map<string, number>();
+  for (const list of [existing, incoming]) for (let i = 0; i < list.length; i++) {
+    signal.throwIfAborted();
+    const source = list[i], key = JSON.stringify([source.bookSourceUrl, source.bookSourceName]);
+    const position = positions.get(key);
+    if (position !== undefined) next[position] = source;
+    else {
+      if (next.length >= MAX_SOURCE_COUNT) throw new Error('最多保存 100000 个书源，请先移除不用的书源');
+      positions.set(key, next.length); next.push(source);
+    }
+    if (i % 1000 === 999) await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  signal.throwIfAborted(); return next;
+}
+async function sourcePage(url: string, signal: AbortSignal, source?: BookSource, request?: ReturnType<typeof legacySearchRequest> & { headers?: Record<string, string> }) {
+  const headers: Record<string, string> = { ...(request?.headers || source?.requestHeaders) };
+  if (source?.httpUserAgent) { for (const key of Object.keys(headers)) if (/^user-agent$/i.test(key)) delete headers[key]; headers['User-Agent'] = source.httpUserAgent; }
+  if (request?.method === 'POST' && !Object.keys(headers).some(k => k.toLowerCase() === 'content-type')) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=' + request.charset;
+  const r = await requestBytes(url, { signal, anonymous: true, limit: 4 * 1024 * 1024, headers, method: request?.method, body: request?.body });
+  const text = decodeSourceResponse(r.data, r.headers.get('content-type') || '');
+  const doc = new DOMParser().parseFromString(text, 'text/html');
+  let data: SourceData = doc;
+  if (/^\s*[\[{]/.test(text)) { try { const json = JSON.parse(text); if (json && typeof json === 'object') data = json; } catch { /* HTML response with a JSON-like prefix */ } }
+  return { doc, data, url: r.url };
+}
+function sourceItems(source: BookSource, data: SourceData, rule: string): SourceData[] {
+  return source.format === 'legacy' ? legacyElements(data as ParentNode, rule) : sourceRuleItems(data, rule);
+}
+function sourceValue(source: BookSource, data: SourceData, rule: string | undefined, signal: AbortSignal) {
+  return source.format === 'legacy' ? legacyExtract(data as ParentNode, rule, signal) : sourceRuleValue(data, rule, signal);
+}
+let cachedChapterBook: { key: string; urls: Set<string> } | undefined;
+function chapterBookKey(source: BookSource, book: CatalogEntry) { return JSON.stringify([source.bookSourceUrl, book.url]); }
+function rememberChapters(source: BookSource, book: CatalogEntry, chapters: CatalogEntry[]) {
+  cachedChapterBook = { key: chapterBookKey(source, book), urls: new Set(chapters.map(c => c.url)) };
+  return chapters;
+}
+function sameChapterPage(first: string, next: string): boolean {
+  const a = new URL(first), b = new URL(next);
+  if (a.origin !== b.origin) return false;
+  const stem = (path: string) => path.replace(/[_-]\d+(?=\.[a-z]+$)/i, '');
+  if (a.pathname !== b.pathname && stem(a.pathname) === stem(b.pathname)) return true;
+  if (a.pathname !== b.pathname) return false;
+  const params = new Set([...a.searchParams.keys(), ...b.searchParams.keys()]);
+  let changedPage = false;
+  for (const key of params) {
+    if (a.searchParams.get(key) === b.searchParams.get(key)) continue;
+    if (!/^(page|p|pageno|pageindex|part|offset)$/i.test(key)) return false;
+    changedPage = true;
+  }
+  return changedPage;
 }
 export async function searchSource(source: BookSource, query: string, page: number, signal: AbortSignal): Promise<CatalogEntry[]> {
   if (!query.trim()) throw new Error('请输入书名或作者');
+  if (source.format) {
+    const request = source.format === 'legacy' ? legacySearchRequest(source.searchUrl, source.bookSourceUrl, query.trim(), page) : sourceSearchRequest(source.searchUrl, source.bookSourceUrl, query.trim(), page, source.requestHeaders);
+    const r = await sourcePage(request.url, signal, source, request), entries: CatalogEntry[] = [];
+    const filterTitle = source.ruleSearch.filter === 'title';
+    for (const el of sourceItems(source, source.format === 'legacy' ? r.doc : r.data, source.ruleSearch.bookList).slice(0, filterTitle ? 10000 : 200)) {
+      signal.throwIfAborted();
+      const title = await sourceValue(source, el, source.ruleSearch.name, signal);
+      if (filterTitle && !title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) continue;
+      const url = maybeUrl(await sourceValue(source, el, source.ruleSearch.bookUrl, signal), r.url);
+      const author = await sourceValue(source, el, source.ruleSearch.author, signal);
+      if (title && url) entries.push({ title, author, url, download: false });
+      if (entries.length >= 200) break;
+    }
+    return entries;
+  }
   const url = secureUrl(source.searchUrl.replace(/\{\{\s*key\s*\}\}/g, encodeURIComponent(query.trim())).replace(/\{\{\s*page\s*\}\}/g, String(page)), source.bookSourceUrl);
   const r = await sourcePage(url, signal), rules = source.ruleSearch;
   return elements(r.doc, rules.bookList).slice(0, 200).flatMap((el) => {
@@ -352,8 +457,41 @@ export async function searchSource(source: BookSource, query: string, page: numb
     return title && url ? [{ title, author: extract(el, rules.author), url, download: false }] : [];
   });
 }
+export function sourceHasSearchPages(source: BookSource): boolean { return /searchPage|\{\{\s*page(?:\s*[+-]\s*\d+)?\s*\}\}/.test(source.searchUrl); }
 export async function sourceChapters(source: BookSource, book: CatalogEntry, signal: AbortSignal): Promise<CatalogEntry[]> {
-  let r = await sourcePage(book.url, signal);
+  let r = await sourcePage(book.url, signal, source);
+  if (source.format) {
+    let detailData = source.format === 'legacy' ? r.doc : r.data;
+    if (source.format === 'declarative' && source.ruleBookInfo?.init) {
+      const roots = sourceItems(source, r.data, source.ruleBookInfo.init);
+      if (roots.length) detailData = roots[0];
+    }
+    if (source.ruleBookInfo?.tocUrl) {
+      const toc = await sourceValue(source, detailData, source.ruleBookInfo.tocUrl, signal);
+      if (toc) {
+        const url = secureUrl(toc.split('\n')[0], r.url);
+        if (url !== r.url) r = await sourcePage(url, signal, source);
+      } else if (!sourceItems(source, source.format === 'legacy' ? r.doc : r.data, source.ruleToc.chapterList).length) throw new Error('书源未能提取目录链接');
+    }
+    const visited = new Set<string>(), seen = new Set<string>(), entries: CatalogEntry[] = [];
+    for (let page = 0; page < 100; page++) {
+      signal.throwIfAborted(); visited.add(r.url);
+      const items = sourceItems(source, source.format === 'legacy' ? r.doc : r.data, source.ruleToc.chapterList);
+      if (!items.length) throw new Error('没有提取到章节，网站可能已改版或此旧书源已失效');
+      for (const el of items) {
+        const title = await sourceValue(source, el, source.ruleToc.chapterName, signal);
+        const url = maybeUrl(await sourceValue(source, el, source.ruleToc.chapterUrl, signal), r.url);
+        if (title && url && !seen.has(url)) { seen.add(url); entries.push({ title, url, download: false }); }
+        if (entries.length > 20000) throw new Error('章节数超过限制');
+      }
+      const nextLinks = await sourceValue(source, source.format === 'legacy' ? r.doc : r.data, source.ruleToc.nextTocUrl, signal);
+      const next = nextLinks.split('\n').map(v => maybeUrl(v.trim(), r.url)).find(v => v && !visited.has(v) && !seen.has(v));
+      if (!next) return rememberChapters(source, book, String(source.ruleToc.isReverse) === 'true' ? entries.reverse() : entries);
+      if (page === 99) throw new Error('目录超过 100 页，请检查书源分页规则');
+      visited.add(next); r = await sourcePage(next, signal, source);
+    }
+    return rememberChapters(source, book, entries);
+  }
   if (source.ruleBookInfo?.tocUrl) {
     const toc = extract(r.doc, source.ruleBookInfo.tocUrl);
     if (!toc) throw new Error('书源未能提取目录链接');
@@ -367,17 +505,42 @@ export async function sourceChapters(source: BookSource, book: CatalogEntry, sig
   });
   if (!entries.length) throw new Error('没有提取到章节，书源规则可能已失效');
   if (entries.length > 20000) throw new Error('章节数超过限制');
-  return entries;
+  return rememberChapters(source, book, entries);
 }
 export async function downloadChapters(source: BookSource, book: CatalogEntry, chapters: CatalogEntry[], signal: AbortSignal, progress: (text: string) => void): Promise<File> {
   if (!chapters.length || chapters.length > 10000) throw new Error('每次请选择 1–10000 章');
   const parts: string[] = []; let size = 0;
+  const knownChapters = cachedChapterBook?.key === chapterBookKey(source, book) ? cachedChapterBook.urls : new Set(chapters.map(c => c.url));
   for (let i = 0; i < chapters.length; i++) {
     signal.throwIfAborted(); progress(`正在下载 ${i + 1} / ${chapters.length} 章`);
-    const chapter = chapters[i], r = await sourcePage(chapter.url, signal);
-    const raw = extract(r.doc, source.ruleContent.content);
+    const chapter = chapters[i];
+    let r = await sourcePage(chapter.url, signal, source);
+    let raw = source.format ? await sourceValue(source, source.format === 'legacy' ? r.doc : r.data, source.ruleContent.content, signal) : extract(r.doc, source.ruleContent.content);
+    if (source.format && source.ruleContent.nextContentUrl) {
+      const visited = new Set([r.url]);
+      let chapterBytes = new TextEncoder().encode(raw).length;
+      for (let page = 0; page < 100; page++) {
+        const next = (await sourceValue(source, source.format === 'legacy' ? r.doc : r.data, source.ruleContent.nextContentUrl, signal)).split('\n').map(v => maybeUrl(v.trim(), r.url)).find(v => v && !visited.has(v));
+        if (!next) break;
+        // Many old sources use a next-chapter link here. Never merge other TOC chapters.
+        if (knownChapters.has(next) && next !== chapter.url) break;
+        if (!sameChapterPage(chapter.url, next)) throw new Error('正文分页地址无法确认属于本章，请检查书源分页规则');
+        if (page === 99) throw new Error('正文分页超过 100 页，请检查书源');
+        visited.add(next); r = await sourcePage(next, signal, source); visited.add(r.url);
+        const part = await sourceValue(source, source.format === 'legacy' ? r.doc : r.data, source.ruleContent.content, signal);
+        if (!part.trim()) throw new Error('正文分页内容为空，未保存本批章节');
+        chapterBytes += new TextEncoder().encode(part).length + 1;
+        if (chapterBytes + size > MAX_DOWNLOAD_BYTES) throw new Error('本批正文超过 256 MiB，请减少章节数');
+        raw += '\n' + part;
+      }
+    }
+    if (source.format === 'declarative' && source.ruleContent.replaceRegex) {
+      const rule = source.ruleContent.replaceRegex;
+      raw = await sourceRuleValue({ value: raw }, '$.value' + (rule.startsWith('##') ? rule : '##' + rule), signal);
+    }
     if (!raw.trim()) throw new Error(`《${chapter.title}》正文为空，未保存本批章节`);
-    const content = ruleParts(source.ruleContent.content).attr === 'html' ? raw : raw.split(/\n+/).map((p) => `<p>${escapeHtml(p)}</p>`).join('');
+    const isHtml = source.format === 'legacy' ? legacyContentIsHtml(source.ruleContent.content) : source.format === 'declarative' ? sourceRuleIsHtml(source.ruleContent.content) || /^\s*<(?:p|div|br)\b/i.test(raw) : ruleParts(source.ruleContent.content).attr === 'html';
+    const content = isHtml ? raw : raw.split(/\n+/).map((p) => `<p>${escapeHtml(p)}</p>`).join('');
     const safe = parseHtml(content, chapter.title).chapters.map((c) => c.html).join('');
     size += new TextEncoder().encode(safe).length; if (size > MAX_DOWNLOAD_BYTES) throw new Error('本批正文超过 256 MiB，请减少章节数');
     parts.push(`<h2>${escapeHtml(chapter.title)}</h2>${safe}`);
